@@ -51,50 +51,81 @@ async def _get_latest_price(db: AsyncSession, asset_id: uuid.UUID) -> tuple[floa
 
 
 async def buy(db: AsyncSession, asset_id: uuid.UUID, quantity: float) -> TransactionRead:
+    """
+    Frais et slippage (Etape 17) : sans eux, une simulation surestime la
+    performance de 5-15% (un backtest sans frais donne une fausse confiance).
+    A l'achat, le slippage joue TOUJOURS contre nous (on paie plus cher que
+    le cours cote), et la commission s'ajoute au cout - le tout entre dans le
+    cout de revient (avg_cost), comme une vraie comptabilite de position.
+    """
     asset = await assets_repository.get_by_id(db, asset_id)
     if asset is None:
         raise AssetNotFoundError(str(asset_id))
 
+    settings = get_settings()
     state = await _get_or_create_state(db)
-    price, price_date = await _get_latest_price(db, asset_id)
-    total_cost = round(price * quantity, 2)
+    quoted_price, price_date = await _get_latest_price(db, asset_id)
+    execution_price = quoted_price * (1 + settings.portfolio_slippage_pct)
+    slippage_amount = round((execution_price - quoted_price) * quantity, 2)
+    commission = round(settings.portfolio_commission_per_trade, 2)
+    total_cost = round(execution_price * quantity + commission, 2)
 
     if total_cost > float(state.cash_balance):
         raise InsufficientFundsError(total_cost, float(state.cash_balance))
 
+    # Cout de revient par action, frais inclus - c'est ce qui sert de reference
+    # pour le calcul du gain/perte non realise et realise plus tard.
+    effective_cost_per_share = execution_price + (commission / quantity)
+
     existing = await repository.get_position(db, asset_id)
     if existing is None:
         new_quantity = quantity
-        new_avg_cost = price
+        new_avg_cost = effective_cost_per_share
     else:
         old_quantity = float(existing.quantity)
         old_avg_cost = float(existing.avg_cost)
         new_quantity = old_quantity + quantity
-        new_avg_cost = ((old_quantity * old_avg_cost) + (quantity * price)) / new_quantity
+        new_avg_cost = ((old_quantity * old_avg_cost) + (quantity * effective_cost_per_share)) / new_quantity
 
     await repository.upsert_position(db, asset_id, new_quantity, new_avg_cost)
     await repository.update_cash_balance(db, state, float(state.cash_balance) - total_cost)
 
     transaction = await repository.add_transaction(
-        db, asset_id, "buy", quantity, price, total_cost, realized_pnl=None, price_date=price_date
+        db,
+        asset_id,
+        "buy",
+        quantity,
+        round(execution_price, 6),
+        total_cost,
+        realized_pnl=None,
+        price_date=price_date,
+        quoted_price=round(quoted_price, 6),
+        commission=commission,
+        slippage_amount=slippage_amount,
     )
     return TransactionRead.model_validate(transaction)
 
 
 async def sell(db: AsyncSession, asset_id: uuid.UUID, quantity: float) -> TransactionRead:
+    """A la vente, le slippage joue aussi contre nous (on recoit moins que le
+    cours cote), et la commission reduit les produits de la vente."""
     asset = await assets_repository.get_by_id(db, asset_id)
     if asset is None:
         raise AssetNotFoundError(str(asset_id))
 
+    settings = get_settings()
     state = await _get_or_create_state(db)
     position = await repository.get_position(db, asset_id)
     held = float(position.quantity) if position else 0.0
     if position is None or quantity > held:
         raise InsufficientPositionError(asset_id, quantity, held)
 
-    price, price_date = await _get_latest_price(db, asset_id)
-    proceeds = round(price * quantity, 2)
-    realized_pnl = round((price - float(position.avg_cost)) * quantity, 2)
+    quoted_price, price_date = await _get_latest_price(db, asset_id)
+    execution_price = quoted_price * (1 - settings.portfolio_slippage_pct)
+    slippage_amount = round((quoted_price - execution_price) * quantity, 2)
+    commission = round(settings.portfolio_commission_per_trade, 2)
+    proceeds = round(execution_price * quantity - commission, 2)
+    realized_pnl = round((execution_price - float(position.avg_cost)) * quantity - commission, 2)
 
     remaining_quantity = held - quantity
     if remaining_quantity <= 0:
@@ -105,7 +136,17 @@ async def sell(db: AsyncSession, asset_id: uuid.UUID, quantity: float) -> Transa
     await repository.update_cash_balance(db, state, float(state.cash_balance) + proceeds)
 
     transaction = await repository.add_transaction(
-        db, asset_id, "sell", quantity, price, proceeds, realized_pnl=realized_pnl, price_date=price_date
+        db,
+        asset_id,
+        "sell",
+        quantity,
+        round(execution_price, 6),
+        proceeds,
+        realized_pnl=realized_pnl,
+        price_date=price_date,
+        quoted_price=round(quoted_price, 6),
+        commission=commission,
+        slippage_amount=slippage_amount,
     )
     return TransactionRead.model_validate(transaction)
 
@@ -149,6 +190,7 @@ async def get_summary(db: AsyncSession) -> PortfolioSummaryRead:
     total_value = cash_balance + positions_value
     total_pnl = total_value - starting_cash
     total_pnl_pct = (total_pnl / starting_cash * 100) if starting_cash > 0 else 0.0
+    total_fees_paid = await repository.get_total_fees(db)
 
     return PortfolioSummaryRead(
         cash_balance=cash_balance,
@@ -157,6 +199,7 @@ async def get_summary(db: AsyncSession) -> PortfolioSummaryRead:
         total_value=total_value,
         total_pnl=total_pnl,
         total_pnl_pct=total_pnl_pct,
+        total_fees_paid=total_fees_paid,
         positions=position_reads,
     )
 

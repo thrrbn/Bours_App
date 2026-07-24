@@ -35,6 +35,13 @@ class MLPreviewRead(BaseModel):
     probability_up: float | None
     final_signal: str | None
     explanation: str
+    # Etape 20 : diagnostic de surapprentissage train/validation (voir
+    # models_ml/logistic_model.py:evaluate_holdout). 'insuffisant' tant que
+    # l'historique est trop court pour un split fiable des deux cotes.
+    validation_status: str = "insuffisant"
+    train_accuracy: float | None = None
+    validation_accuracy: float | None = None
+    validation_sample_count: int = 0
 
 
 class SignalRead(BaseModel):

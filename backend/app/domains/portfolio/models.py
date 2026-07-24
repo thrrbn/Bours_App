@@ -8,7 +8,7 @@ singleton, cree a la premiere utilisation avec le cash de depart configure
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Numeric, String, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -51,7 +51,12 @@ class PortfolioTransaction(Base):
     )
     side: Mapped[str] = mapped_column(String(10), nullable=False)  # 'buy' | 'sell'
     quantity: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False)
+    # price = prix REELLEMENT execute (apres slippage) ; quoted_price = cours
+    # brut avant slippage, conserve pour transparence (Etape 17).
     price: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False)
+    quoted_price: Mapped[float | None] = mapped_column(Numeric(18, 6))
+    commission: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default=text("0"))
+    slippage_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default=text("0"))
     total_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
     realized_pnl: Mapped[float | None] = mapped_column(Numeric(18, 2))
     price_date: Mapped[date] = mapped_column(nullable=False)  # date du dernier cours utilise, pas la date d'execution

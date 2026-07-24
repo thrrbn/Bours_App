@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     # Cash de depart du portefeuille simule - purement pedagogique, aucun
     # lien avec de l'argent reel (voir docs/17-limites-legales-techniques.md).
     portfolio_starting_cash: float = 10000.0
+    # Frais et slippage (Etape 17) : sans eux, une simulation surestime la
+    # performance de 5 a 15% (voir docs/11 et le guide de backtesting cite en
+    # discussion). Commission fixe par ordre + slippage defavorable en %
+    # applique au cours execute (achat plus cher, vente moins bien payee).
+    portfolio_commission_per_trade: float = 2.0
+    portfolio_slippage_pct: float = 0.001
 
 
 @lru_cache

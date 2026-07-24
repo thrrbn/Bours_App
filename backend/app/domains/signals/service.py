@@ -59,6 +59,10 @@ async def _compute_ml_preview(db: AsyncSession, features: SignalFeatures) -> MLP
             probability_up=preview.probability_up,
             final_signal=preview.final_signal,
             explanation=preview.explanation,
+            validation_status=preview.validation_status,
+            train_accuracy=preview.train_accuracy,
+            validation_accuracy=preview.validation_accuracy,
+            validation_sample_count=preview.validation_sample_count,
         )
     except Exception:
         logger.exception("Echec du calcul de l'apercu du modele statistique (ml_preview)")

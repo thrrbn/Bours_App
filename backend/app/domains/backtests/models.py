@@ -33,4 +33,10 @@ class BacktestResult(Base):
     false_positive_rate: Mapped[float | None] = mapped_column(Numeric(5, 4))
     max_drawdown: Mapped[float | None] = mapped_column(Numeric(6, 4))
     signal_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Etape 18 : metriques financieres complementaires (voir backtests/service.py
+    # pour les definitions et simplifications assumees).
+    sharpe_ratio: Mapped[float | None] = mapped_column(Numeric(10, 4))
+    calmar_ratio: Mapped[float | None] = mapped_column(Numeric(10, 4))
+    profit_factor: Mapped[float | None] = mapped_column(Numeric(10, 4))
+    avg_risk_reward: Mapped[float | None] = mapped_column(Numeric(10, 4))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -36,6 +36,9 @@ class TransactionRead(BaseModel):
     side: str
     quantity: float
     price: float
+    quoted_price: float | None
+    commission: float
+    slippage_amount: float
     total_amount: float
     realized_pnl: float | None
     price_date: date
@@ -49,8 +52,10 @@ class PortfolioSummaryRead(BaseModel):
     total_value: float
     total_pnl: float
     total_pnl_pct: float
+    total_fees_paid: float
     positions: list[PositionRead]
     disclaimer: str = (
         "Portefeuille de simulation - aucun ordre reel n'est passe, aucun argent reel n'est engage. "
+        "Les frais/slippage simules sont une estimation, pas une garantie des couts reels d'un broker. "
         "Voir /api/v1/compliance/disclaimer."
     )

@@ -92,6 +92,16 @@ async def compute_and_store_indicators(db: AsyncSession, asset_id: uuid.UUID) ->
 _TRADING_DAYS_PER_WINDOW = {"return_1m": 21, "return_3m": 63, "return_6m": 126, "return_12m": 252}
 
 
+def _adjusted_or_close(bar) -> float:
+    """
+    Etape 19 : le RENDEMENT (pourcentage de variation) doit se baser sur le
+    cours ajuste des dividendes/splits, sinon un detachement de dividende
+    simule une fausse baisse. `latest_price` affiche, lui, reste le cours
+    brut (celui reellement cote aujourd'hui) - seul le calcul du % change.
+    """
+    return float(bar.adjusted_close) if bar.adjusted_close is not None else float(bar.close)
+
+
 async def compute_historical_trend(db: AsyncSession, asset_id: uuid.UUID) -> dict:
     """
     Rendement reel sur les fenetres passees 1/3/6/12 mois, calcule a partir
@@ -106,10 +116,13 @@ async def compute_historical_trend(db: AsyncSession, asset_id: uuid.UUID) -> dic
     latest = bars[0]
 
     result: dict = {"latest_price": float(latest.close), "latest_date": latest.trade_date}
+    latest_return_price = _adjusted_or_close(latest)
     for key, days_back in _TRADING_DAYS_PER_WINDOW.items():
         if len(bars) > days_back:
-            past_close = float(bars[days_back].close)
-            result[key] = round((float(latest.close) - past_close) / past_close * 100, 2) if past_close else None
+            past_price = _adjusted_or_close(bars[days_back])
+            result[key] = (
+                round((latest_return_price - past_price) / past_price * 100, 2) if past_price else None
+            )
         else:
             result[key] = None
     return result

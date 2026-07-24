@@ -10,6 +10,7 @@ Aucune migration necessaire pour demarrer l'entrainement.
 """
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +33,12 @@ class TrainingExample:
     news_sentiment: float
     news_article_count: int
     label: int  # 1 si rendement futur positif, 0 sinon
+    # Etape 20 : date du signal d'origine, utilisee pour un split train/
+    # validation CHRONOLOGIQUE (jamais aleatoire - un split aleatoire sur une
+    # serie temporelle laisserait fuiter de l'information du futur vers le
+    # passe). Optionnel/None pour ne pas casser les appels positionnels
+    # existants (tests notamment) qui ne le fournissent pas.
+    computed_at: datetime | None = None
 
 
 async def _compute_forward_label(
@@ -87,6 +94,29 @@ async def build_training_set(db: AsyncSession) -> list[TrainingExample]:
                 news_sentiment=float(news.get("news_sentiment") or 0.0),
                 news_article_count=int(news.get("article_count") or 0),
                 label=label,
+                computed_at=signal.computed_at,
             )
         )
     return examples
+
+
+def chronological_split(
+    examples: list[TrainingExample], validation_fraction: float = 0.2
+) -> tuple[list[TrainingExample], list[TrainingExample]]:
+    """
+    Etape 20 : separe les exemples en (train, validation) en respectant
+    l'ordre chronologique - on entraine sur le passe, on valide sur la
+    tranche la plus recente. C'est le meme principe que le walk-forward deja
+    utilise en backtesting (docs/10) : un modele qui "apprend par coeur" le
+    passe mais generalise mal se demasque ici par un ecart net entre
+    precision d'entrainement et precision de validation (surapprentissage).
+
+    Les exemples sans `computed_at` (anciens appels sans date) sont places en
+    premier (traites comme "les plus anciens") via un tri stable.
+    """
+    _epoch = datetime.min.replace(tzinfo=timezone.utc)
+    ordered = sorted(examples, key=lambda e: e.computed_at if e.computed_at is not None else _epoch)
+    if not ordered:
+        return [], []
+    split_index = int(len(ordered) * (1 - validation_fraction))
+    return ordered[:split_index], ordered[split_index:]

@@ -79,7 +79,7 @@ async function onReset() {
     <p v-if="store.error" class="text-sm text-red-600 mb-4">{{ store.error }}</p>
     <p v-if="store.isLoading" class="text-sm text-gray-500">Chargement...</p>
 
-    <div v-if="store.summary" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+    <div v-if="store.summary" class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
       <div class="border rounded-lg p-3 bg-white">
         <div class="text-xs text-gray-500">Cash disponible</div>
         <div class="font-semibold">{{ fmt(store.summary.cash_balance) }} EUR</div>
@@ -99,6 +99,10 @@ async function onReset() {
         <div class="font-semibold" :class="pnlClass(store.summary.total_pnl_pct)">
           {{ store.summary.total_pnl_pct >= 0 ? "+" : "" }}{{ fmt(store.summary.total_pnl_pct) }} %
         </div>
+      </div>
+      <div class="border rounded-lg p-3 bg-white">
+        <div class="text-xs text-gray-500">Frais payes (cumules)</div>
+        <div class="font-semibold text-gray-700">{{ fmt(store.summary.total_fees_paid) }} EUR</div>
       </div>
     </div>
 
@@ -182,12 +186,18 @@ async function onReset() {
 
     <h3 class="text-sm font-semibold mb-2">Transactions recentes</h3>
     <ul class="divide-y border rounded bg-white text-sm">
-      <li v-for="tx in store.transactions" :key="tx.id" class="px-3 py-2 flex justify-between">
-        <span>
-          <span class="font-medium">{{ tx.side === "buy" ? "Achat" : "Vente" }}</span>
-          {{ tx.quantity }} x {{ tx.asset.ticker }} @ {{ fmt(tx.price) }}
-        </span>
-        <span class="text-gray-400 text-xs">{{ new Date(tx.executed_at).toLocaleString() }}</span>
+      <li v-for="tx in store.transactions" :key="tx.id" class="px-3 py-2">
+        <div class="flex justify-between">
+          <span>
+            <span class="font-medium">{{ tx.side === "buy" ? "Achat" : "Vente" }}</span>
+            {{ tx.quantity }} x {{ tx.asset.ticker }} @ {{ fmt(tx.price) }}
+          </span>
+          <span class="text-gray-400 text-xs">{{ new Date(tx.executed_at).toLocaleString() }}</span>
+        </div>
+        <div v-if="tx.quoted_price !== null && tx.quoted_price !== undefined" class="text-xs text-gray-400 mt-0.5">
+          Cours cote {{ fmt(tx.quoted_price) }} - slippage {{ fmt(tx.slippage_amount) }} EUR - commission
+          {{ fmt(tx.commission) }} EUR
+        </div>
       </li>
     </ul>
 

@@ -19,3 +19,7 @@ class BacktestResultRead(BaseModel):
     false_positive_rate: float | None
     max_drawdown: float | None
     signal_count: int
+    sharpe_ratio: float | None = None
+    calmar_ratio: float | None = None
+    profit_factor: float | None = None
+    avg_risk_reward: float | None = None

@@ -1,7 +1,7 @@
 """Acces aux donnees du portefeuille virtuel - requetes SQL/ORM pures."""
 import uuid
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -62,12 +62,18 @@ async def add_transaction(
     total_amount: float,
     realized_pnl: float | None,
     price_date,
+    quoted_price: float | None = None,
+    commission: float = 0.0,
+    slippage_amount: float = 0.0,
 ) -> PortfolioTransaction:
     transaction = PortfolioTransaction(
         asset_id=asset_id,
         side=side,
         quantity=quantity,
         price=price,
+        quoted_price=quoted_price,
+        commission=commission,
+        slippage_amount=slippage_amount,
         total_amount=total_amount,
         realized_pnl=realized_pnl,
         price_date=price_date,
@@ -76,6 +82,11 @@ async def add_transaction(
     await db.commit()
     await db.refresh(transaction, attribute_names=["asset"])
     return transaction
+
+
+async def get_total_fees(db: AsyncSession) -> float:
+    result = await db.execute(select(func.coalesce(func.sum(PortfolioTransaction.commission), 0)))
+    return float(result.scalar_one())
 
 
 async def list_transactions(db: AsyncSession, limit: int = 100) -> list[PortfolioTransaction]:

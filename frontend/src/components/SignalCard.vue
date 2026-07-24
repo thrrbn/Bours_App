@@ -57,6 +57,12 @@ const props = defineProps({
         </span>
       </div>
       <p class="text-sm">{{ signal.ml_preview.explanation }}</p>
+      <div v-if="signal.ml_preview.validation_status === 'ok'" class="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-200">
+        Verification anti-surapprentissage : precision entrainement
+        {{ (signal.ml_preview.train_accuracy * 100).toFixed(0) }}% vs precision validation (donnees
+        recentes jamais vues) {{ (signal.ml_preview.validation_accuracy * 100).toFixed(0) }}%
+        ({{ signal.ml_preview.validation_sample_count }} exemples de validation).
+      </div>
     </div>
 
     <p class="text-xs text-gray-400 italic">{{ signal.disclaimer }}</p>

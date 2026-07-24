@@ -29,6 +29,10 @@ async def save_result(db: AsyncSession, run_id: uuid.UUID, asset_id: uuid.UUID, 
         false_positive_rate=metrics.false_positive_rate,
         max_drawdown=metrics.max_drawdown,
         signal_count=metrics.signal_count,
+        sharpe_ratio=metrics.sharpe_ratio,
+        calmar_ratio=metrics.calmar_ratio,
+        profit_factor=metrics.profit_factor,
+        avg_risk_reward=metrics.avg_risk_reward,
     )
     db.add(result)
     await db.commit()
