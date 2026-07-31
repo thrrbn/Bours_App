@@ -11,7 +11,7 @@ from app.domains.signals.engine import generate_signal
 from app.domains.signals.features import SignalFeatures, build_feature_vector
 from app.domains.signals.models_ml import logistic_model
 from app.domains.signals.schemas import ExplanationRead, MLPreviewRead, ScoreSet, SignalRead
-from app.domains.signals.training import build_training_set
+from app.domains.signals.training import TrainingExample, build_training_set
 
 logger = logging.getLogger(__name__)
 
@@ -41,15 +41,25 @@ def _to_signal_read(signal, explanations, ml_preview: MLPreviewRead | None) -> S
     )
 
 
-async def _compute_ml_preview(db: AsyncSession, features: SignalFeatures) -> MLPreviewRead | None:
+async def _compute_ml_preview(
+    db: AsyncSession, features: SignalFeatures, training_examples: list[TrainingExample] | None = None
+) -> MLPreviewRead | None:
     """
     Calcule l'apercu du modele statistique V2, en parallele du signal officiel.
     Ne doit jamais faire echouer le calcul du signal principal : toute erreur
     ici (ex. scikit-learn indisponible, donnees corrompues) est loggee et
     aboutit simplement a l'absence de ml_preview, pas a une erreur HTTP.
+
+    `training_examples` : si fourni, evite de rebatir le jeu d'entrainement
+    (build_training_set fait un aller-retour DB par signal existant, tous
+    actifs confondus - couteux). A fournir explicitement des qu'on calcule
+    des signaux pour PLUSIEURS actifs dans la meme requete/job (voir
+    jobs/compute_signals_job.py et analyst/service.py:get_comparison_table)
+    pour ne le construire qu'une seule fois au lieu d'une fois par actif -
+    bug reel corrige le 30/07/2026, voir docs/STACK.md.
     """
     try:
-        examples = await build_training_set(db)
+        examples = training_examples if training_examples is not None else await build_training_set(db)
         preview = logistic_model.predict(features, examples)
         return MLPreviewRead(
             engine_version=preview.engine_version,
@@ -69,7 +79,9 @@ async def _compute_ml_preview(db: AsyncSession, features: SignalFeatures) -> MLP
         return None
 
 
-async def compute_signal_for_asset(db: AsyncSession, asset_id: uuid.UUID, horizon: str) -> SignalRead:
+async def compute_signal_for_asset(
+    db: AsyncSession, asset_id: uuid.UUID, horizon: str, training_examples: list[TrainingExample] | None = None
+) -> SignalRead:
     features = await build_feature_vector(db, asset_id, horizon)
     if features.price_history_days < 20:
         raise InsufficientDataError(
@@ -82,14 +94,16 @@ async def compute_signal_for_asset(db: AsyncSession, asset_id: uuid.UUID, horizo
 
     signal = await repository.save_signal(db, asset_id, horizon, result)
     explanations = await repository.get_explanations(db, signal.id)
-    ml_preview = await _compute_ml_preview(db, features)
+    ml_preview = await _compute_ml_preview(db, features, training_examples=training_examples)
     return _to_signal_read(signal, explanations, ml_preview)
 
 
-async def get_or_compute_signal(db: AsyncSession, asset_id: uuid.UUID, horizon: str) -> SignalRead:
+async def get_or_compute_signal(
+    db: AsyncSession, asset_id: uuid.UUID, horizon: str, training_examples: list[TrainingExample] | None = None
+) -> SignalRead:
     existing = await repository.get_latest_signal(db, asset_id, horizon)
     if existing is None:
-        return await compute_signal_for_asset(db, asset_id, horizon)
+        return await compute_signal_for_asset(db, asset_id, horizon, training_examples=training_examples)
 
     explanations = await repository.get_explanations(db, existing.id)
 
@@ -98,5 +112,5 @@ async def get_or_compute_signal(db: AsyncSession, asset_id: uuid.UUID, horizon: 
     # statut de maturite (nombre d'exemples disponibles) evolue dans le temps
     # independamment du moment ou le signal officiel a ete fige.
     features = await build_feature_vector(db, asset_id, existing.horizon)
-    ml_preview = await _compute_ml_preview(db, features)
+    ml_preview = await _compute_ml_preview(db, features, training_examples=training_examples)
     return _to_signal_read(existing, explanations, ml_preview)

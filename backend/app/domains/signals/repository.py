@@ -1,7 +1,8 @@
 """Persistance des signaux et de leurs explications."""
 import uuid
+from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.signals.models import Signal, SignalExplanation
@@ -46,6 +47,15 @@ async def get_latest_signal(db: AsyncSession, asset_id: uuid.UUID, horizon: str)
     )
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
+
+
+async def get_latest_computed_at_by_asset(db: AsyncSession) -> dict[uuid.UUID, datetime]:
+    """Date du dernier signal calcule, groupee par actif et tous horizons
+    confondus (tous actifs en UNE requete) - utilise par
+    assets/service.py:get_status_overview() pour eviter le N+1."""
+    stmt = select(Signal.asset_id, func.max(Signal.computed_at)).group_by(Signal.asset_id)
+    result = await db.execute(stmt)
+    return {asset_id: computed_at for asset_id, computed_at in result.all()}
 
 
 async def get_explanations(db: AsyncSession, signal_id: uuid.UUID) -> list[SignalExplanation]:

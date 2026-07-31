@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.domains.assets import service
-from app.domains.assets.schemas import AssetCreate, AssetRead, AssetSearchResult
+from app.domains.assets.schemas import AssetCreate, AssetRead, AssetSearchResult, AssetStatusRead, CandidateAssetRead
 
 router = APIRouter(prefix="/api/v1/assets", tags=["assets"])
 
@@ -22,6 +22,28 @@ async def list_assets(
 @router.get("/search", response_model=list[AssetSearchResult])
 async def search_assets(q: str = Query(..., min_length=1), db: AsyncSession = Depends(get_db)):
     return await service.search_assets(db, q)
+
+
+@router.get("/status", response_model=list[AssetStatusRead])
+async def get_status_overview(db: AsyncSession = Depends(get_db)):
+    """
+    Fraicheur des donnees (prix/signal/consensus) pour tous les actifs
+    suivis - alimente la page de suivi des actifs (rafraichissement titre
+    par titre). Route declaree avant /{asset_id} pour eviter que FastAPI
+    n'essaie de parser "status" comme un UUID.
+    """
+    return await service.get_status_overview(db)
+
+
+@router.get("/discover-candidates", response_model=list[CandidateAssetRead])
+async def discover_candidates(limit: int = Query(default=10, ge=1, le=25), db: AsyncSession = Depends(get_db)):
+    """
+    Suggestions de titres non suivis (tendances Yahoo Finance + sentiment RSS
+    recent, voir assets/discovery.py) - purement informatif, AUCUN ajout
+    automatique. Route declaree avant /{asset_id} pour eviter que FastAPI
+    n'essaie de parser "discover-candidates" comme un UUID.
+    """
+    return await service.discover_candidates(db, limit=limit)
 
 
 @router.get("/{asset_id}", response_model=AssetRead)

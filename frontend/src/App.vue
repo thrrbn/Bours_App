@@ -17,6 +17,7 @@ const maintenance = useMaintenanceStore();
         <RouterLink to="/watchlist" class="hover:underline">Ma watchlist</RouterLink>
         <RouterLink to="/portfolio" class="hover:underline">Portefeuille virtuel</RouterLink>
         <RouterLink to="/top-buys" class="hover:underline">Top achats</RouterLink>
+        <RouterLink to="/status" class="hover:underline">Suivi des actifs</RouterLink>
         <RouterLink to="/history" class="hover:underline">Historique des signaux</RouterLink>
         <button
           class="text-xs border rounded px-2 py-1 text-gray-600 hover:bg-gray-50 disabled:opacity-40"

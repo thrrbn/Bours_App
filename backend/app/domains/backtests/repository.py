@@ -19,20 +19,48 @@ async def create_run(
     return run
 
 
-async def save_result(db: AsyncSession, run_id: uuid.UUID, asset_id: uuid.UUID, horizon: str, metrics) -> BacktestResult:
+async def save_result(
+    db: AsyncSession,
+    run_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    horizon: str,
+    *,
+    precision: float | None,
+    win_rate: float | None,
+    false_positive_rate: float | None,
+    max_drawdown: float | None,
+    signal_count: int,
+    sharpe_ratio: float | None = None,
+    calmar_ratio: float | None = None,
+    profit_factor: float | None = None,
+    avg_risk_reward: float | None = None,
+    strategy_name: str = "internal_rules",
+    extra_metrics: dict | None = None,
+) -> BacktestResult:
+    """
+    Champs explicites plutot qu'un objet BacktestMetrics unique (31/07/2026) :
+    les deux moteurs (interne evaluate_signals() et backtesting.py, voir
+    kernc_engine.py) produisent des metriques compatibles mais pas le meme
+    type d'objet - le routeur normalise en kwargs avant d'appeler cette
+    fonction, qui reste ainsi agnostique du moteur d'origine. strategy_name
+    distingue "internal_rules" (comportement par defaut, moteur historique)
+    de "signal_replay"/"sma_cross"/"buy_and_hold" (nouveau moteur).
+    """
     result = BacktestResult(
         backtest_run_id=run_id,
         asset_id=asset_id,
         horizon=horizon,
-        precision=metrics.precision,
-        win_rate=metrics.win_rate,
-        false_positive_rate=metrics.false_positive_rate,
-        max_drawdown=metrics.max_drawdown,
-        signal_count=metrics.signal_count,
-        sharpe_ratio=metrics.sharpe_ratio,
-        calmar_ratio=metrics.calmar_ratio,
-        profit_factor=metrics.profit_factor,
-        avg_risk_reward=metrics.avg_risk_reward,
+        precision=precision,
+        win_rate=win_rate,
+        false_positive_rate=false_positive_rate,
+        max_drawdown=max_drawdown,
+        signal_count=signal_count,
+        sharpe_ratio=sharpe_ratio,
+        calmar_ratio=calmar_ratio,
+        profit_factor=profit_factor,
+        avg_risk_reward=avg_risk_reward,
+        strategy_name=strategy_name,
+        extra_metrics=extra_metrics,
     )
     db.add(result)
     await db.commit()

@@ -5,6 +5,7 @@ DERNIER COURS CONNU (pas de choix de date passee - decision produit du
 complexite d'une UI de selection de date). Aucune connexion a un vrai compte
 de courtage : tout est simule en base (voir models.py).
 """
+import math
 import uuid
 from datetime import date
 
@@ -47,7 +48,20 @@ async def _get_latest_price(db: AsyncSession, asset_id: uuid.UUID) -> tuple[floa
             "Aucun cours connu pour cet actif - lance d'abord un rafraichissement des prix "
             "(POST /api/v1/market-data/{asset_id}/refresh)."
         )
-    return float(bar.close), bar.trade_date
+    close = float(bar.close)
+    # Bug reel trouve le 30/07/2026 : un cours NaN (deja bloque a l'ingestion
+    # depuis, voir market_data/providers/yahoo_finance.py et repository.py)
+    # servait de base a un achat/vente, ce qui empoisonnait durablement
+    # avg_cost et cash_balance (NaN irreversible dans toute arithmetique
+    # ulterieure - voir docs/STACK.md). Garde-fou defensif ici aussi, au cas
+    # ou une barre invalide serait deja en base (donnees anciennes) ou
+    # proviendrait d'un futur provider non protege.
+    if math.isnan(close) or close <= 0:
+        raise InsufficientDataError(
+            f"Cours invalide pour cet actif ({close}) - relance un rafraichissement des prix "
+            "(POST /api/v1/market-data/{asset_id}/refresh) avant d'acheter/vendre."
+        )
+    return close, bar.trade_date
 
 
 async def buy(db: AsyncSession, asset_id: uuid.UUID, quantity: float) -> TransactionRead:

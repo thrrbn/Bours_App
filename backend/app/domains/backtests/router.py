@@ -4,12 +4,19 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.domains.backtests import repository, service
+from app.domains.backtests import kernc_engine, repository, service
 from app.domains.backtests.schemas import BacktestResultRead, BacktestRunCreate
 
 router = APIRouter(prefix="/api/v1/backtests", tags=["backtests"])
 
 HORIZONS = ("short", "medium", "long")
+
+try:
+    import backtesting as _backtesting_lib
+
+    _KERNC_VERSION = getattr(_backtesting_lib, "__version__", "unknown")
+except ImportError:  # pragma: no cover - la dependance est dans requirements.txt
+    _KERNC_VERSION = "unknown"
 
 
 @router.post("/run")
@@ -34,7 +41,83 @@ async def run_backtest(payload: BacktestRunCreate, db: AsyncSession = Depends(ge
             )
             if metrics.signal_count == 0:
                 continue
-            await repository.save_result(db, run.id, asset_id, horizon, metrics)
+            await repository.save_result(
+                db,
+                run.id,
+                asset_id,
+                horizon,
+                precision=metrics.precision,
+                win_rate=metrics.win_rate,
+                false_positive_rate=metrics.false_positive_rate,
+                max_drawdown=metrics.max_drawdown,
+                signal_count=metrics.signal_count,
+                sharpe_ratio=metrics.sharpe_ratio,
+                calmar_ratio=metrics.calmar_ratio,
+                profit_factor=metrics.profit_factor,
+                avg_risk_reward=metrics.avg_risk_reward,
+                strategy_name="internal_rules",
+            )
+
+    return {"backtest_run_id": run.id, "status": "completed"}
+
+
+@router.post("/run-kernc")
+async def run_backtest_kernc(payload: BacktestRunCreate, db: AsyncSession = Depends(get_db)):
+    """
+    Meme scope (actifs + periode) que /run, mais via backtesting.py (31/07/2026,
+    voir kernc_engine.py) : simulation reelle bar-par-bar (cash, ordres,
+    equity curve), au lieu du rejeu analytique de signaux du moteur interne.
+
+    Ecrit dans les MEMES tables que /run (engine_version distinct ->
+    "backtesting.py-{version}"), avec un strategy_name par ligne :
+    - signal_replay : rejoue nos propres signaux stockes, un run par horizon
+      (short/medium/long), comme le moteur interne.
+    - sma_cross / buy_and_hold : benchmarks classiques, independants de
+      l'horizon (horizon stocke a "n/a" par convention).
+
+    Permet de comparer les deux moteurs cote a cote pour un meme actif/
+    periode via GET /{run_id} (les deux runs restent distincts, un run_id
+    different par POST).
+    """
+    run = await repository.create_run(
+        db,
+        engine_version=f"backtesting.py-{_KERNC_VERSION}",
+        period_start=payload.period_start,
+        period_end=payload.period_end,
+        asset_scope={"asset_ids": [str(a) for a in payload.asset_ids]},
+    )
+
+    for asset_id in payload.asset_ids:
+        for strategy_name in kernc_engine.ALL_STRATEGIES:
+            horizons = HORIZONS if strategy_name == kernc_engine.STRATEGY_SIGNAL_REPLAY else ("n/a",)
+            for horizon in horizons:
+                result = await kernc_engine.run_kernc_backtest(
+                    db,
+                    asset_id,
+                    strategy_name,
+                    payload.period_start,
+                    payload.period_end,
+                    horizon=horizon if horizon != "n/a" else "medium",
+                )
+                if result is None:
+                    continue
+                await repository.save_result(
+                    db,
+                    run.id,
+                    asset_id,
+                    horizon,
+                    precision=result["precision"],
+                    win_rate=result["win_rate"],
+                    false_positive_rate=result["false_positive_rate"],
+                    max_drawdown=result["max_drawdown"],
+                    signal_count=result["signal_count"],
+                    sharpe_ratio=result["sharpe_ratio"],
+                    calmar_ratio=result["calmar_ratio"],
+                    profit_factor=result["profit_factor"],
+                    avg_risk_reward=result["avg_risk_reward"],
+                    strategy_name=result["strategy_name"],
+                    extra_metrics=result["extra_metrics"],
+                )
 
     return {"backtest_run_id": run.id, "status": "completed"}
 

@@ -8,6 +8,7 @@ preavis (voir docs/17-limites-legales-techniques.md). C'est precisement
 pour absorber ce risque que cette classe est isolee derriere l'interface
 MarketDataProvider : un remplacement de source ne touche que ce fichier.
 """
+import math
 from datetime import date
 
 import yfinance as yf
@@ -42,15 +43,30 @@ class YahooFinanceProvider(MarketDataProvider):
 
         bars: list[PriceBarDTO] = []
         for trade_date, row in history.iterrows():
+            close = float(row["Close"])
+            open_ = float(row["Open"])
+            high = float(row["High"])
+            low = float(row["Low"])
+            # Bug reel trouve le 30/07/2026 : yfinance renvoie parfois une
+            # ligne avec des OHLC a NaN (frequent pour la bougie du jour
+            # encore en formation avant cloture, ou un jour peu liquide).
+            # float(nan) ne leve AUCUNE exception - sans ce garde-fou, un NaN
+            # se glissait silencieusement dans price_bars.close, puis dans le
+            # cout de revient (avg_cost) et le cash du portefeuille virtuel a
+            # l'achat (portfolio/service.py), qui restait ensuite corrompu
+            # (NaN) indefiniment - voir docs/STACK.md. On ignore la ligne
+            # plutot que de stocker un cours invalide.
+            if any(math.isnan(v) for v in (open_, high, low, close)):
+                continue
             bars.append(
                 PriceBarDTO(
                     trade_date=trade_date.date(),
-                    open=float(row["Open"]),
-                    high=float(row["High"]),
-                    low=float(row["Low"]),
-                    close=float(row["Close"]),
-                    adjusted_close=float(row["Adj Close"]) if "Adj Close" in row else float(row["Close"]),
-                    volume=int(row["Volume"]),
+                    open=open_,
+                    high=high,
+                    low=low,
+                    close=close,
+                    adjusted_close=float(row["Adj Close"]) if "Adj Close" in row else close,
+                    volume=int(row["Volume"]) if not math.isnan(row["Volume"]) else 0,
                 )
             )
         return bars

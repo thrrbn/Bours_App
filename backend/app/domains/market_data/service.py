@@ -11,18 +11,49 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.market_data import repository
 from app.domains.market_data.providers.base import MarketDataProvider
+from app.domains.market_data.providers.binance import BinanceProvider
+from app.domains.market_data.providers.yahoo_finance import YahooFinanceProvider
+
+_yahoo_provider = YahooFinanceProvider()
+_binance_provider = BinanceProvider()
+
+# Choix du provider (et du libelle "source" trace sur chaque price_bar, voir
+# repository.upsert_price_bars) selon le marche de l'actif. "BINANCE" -> API
+# publique Binance (crypto, tickers style "BTCUSDT") ; tout le reste ->
+# Yahoo Finance (actions/ETF, comportement historique inchange). Point
+# d'extension unique si un jour un troisieme fournisseur s'ajoute - jobs/
+# ingest_prices_job.py et market_data/router.py passent tous les deux par
+# cette fonction, aucune logique de selection dupliquee.
+_PROVIDERS_BY_MARKET: dict[str, tuple[MarketDataProvider, str]] = {
+    "BINANCE": (_binance_provider, "binance"),
+}
+_DEFAULT_PROVIDER: tuple[MarketDataProvider, str] = (_yahoo_provider, "yahoo_finance")
+
+
+def provider_for_market(market: str) -> tuple[MarketDataProvider, str]:
+    return _PROVIDERS_BY_MARKET.get(market, _DEFAULT_PROVIDER)
 
 
 async def ingest_history(
-    db: AsyncSession, asset_id: uuid.UUID, ticker: str, provider: MarketDataProvider, days_back: int = 400
+    db: AsyncSession,
+    asset_id: uuid.UUID,
+    ticker: str,
+    provider: MarketDataProvider,
+    days_back: int = 400,
+    source: str = "yahoo_finance",
 ) -> int:
-    """Recupere l'historique manquant et l'upsert en base. Retourne le nombre de barres inserees."""
+    """Recupere l'historique manquant et l'upsert en base. Retourne le nombre de barres inserees.
+
+    `source` doit correspondre au provider passe (ex. "binance" avec
+    BinanceProvider) - trace la provenance de chaque price_bar (voir
+    jobs/ingest_prices_job.py qui choisit le couple provider/source par
+    asset.market)."""
     end = date.today()
     start = end - timedelta(days=days_back)
     bars = await provider.fetch_history(ticker, start, end)
     if not bars:
         return 0
-    await repository.upsert_price_bars(db, asset_id, bars)
+    await repository.upsert_price_bars(db, asset_id, bars, source=source)
     return len(bars)
 
 

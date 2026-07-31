@@ -39,4 +39,14 @@ class BacktestResult(Base):
     calmar_ratio: Mapped[float | None] = mapped_column(Numeric(10, 4))
     profit_factor: Mapped[float | None] = mapped_column(Numeric(10, 4))
     avg_risk_reward: Mapped[float | None] = mapped_column(Numeric(10, 4))
+    # 31/07/2026 : integration de backtesting.py comme second moteur (voir
+    # backtests/kernc_engine.py) - cohabite dans les MEMES tables que le
+    # moteur interne (evaluate_signals) pour comparaison directe. strategy_name
+    # distingue "internal_rules" (moteur historique, toujours pose explicitement
+    # par router.py) de "signal_replay"/"sma_cross"/"buy_and_hold" (nouveau
+    # moteur). extra_metrics stocke les statistiques riches de backtesting.py
+    # qui n'ont pas d'equivalent typé ici (Sortino, Exposure Time, SQN,
+    # Best/Worst Trade...), sans avoir a migrer une colonne par metrique.
+    strategy_name: Mapped[str | None] = mapped_column(String(50))
+    extra_metrics: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

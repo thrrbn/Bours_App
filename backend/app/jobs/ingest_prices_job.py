@@ -3,11 +3,9 @@ import logging
 
 from app.database import AsyncSessionLocal
 from app.domains.assets.repository import list_all as list_all_assets
-from app.domains.market_data.providers.yahoo_finance import YahooFinanceProvider
-from app.domains.market_data.service import compute_and_store_indicators, ingest_history
+from app.domains.market_data.service import compute_and_store_indicators, ingest_history, provider_for_market
 
 logger = logging.getLogger(__name__)
-provider = YahooFinanceProvider()
 
 
 async def ingest_prices_job() -> dict:
@@ -15,8 +13,9 @@ async def ingest_prices_job() -> dict:
         assets = await list_all_assets(db)
         errors = 0
         for asset in assets:
+            provider, source = provider_for_market(asset.market)
             try:
-                await ingest_history(db, asset.id, asset.ticker, provider)
+                await ingest_history(db, asset.id, asset.ticker, provider, source=source)
                 await compute_and_store_indicators(db, asset.id)
             except Exception:
                 errors += 1

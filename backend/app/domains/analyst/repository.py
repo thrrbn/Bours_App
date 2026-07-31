@@ -1,10 +1,20 @@
 import uuid
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.domains.analyst.models import AnalystConsensus
+
+
+async def get_latest_fetched_at_by_asset(db: AsyncSession) -> dict[uuid.UUID, datetime]:
+    """Date du dernier consensus recupere, par actif (tous actifs en UNE
+    requete, une seule ligne existe deja par actif - voir upsert()) - utilise
+    par assets/service.py:get_status_overview()."""
+    stmt = select(AnalystConsensus.asset_id, AnalystConsensus.fetched_at)
+    result = await db.execute(stmt)
+    return {asset_id: fetched_at for asset_id, fetched_at in result.all()}
 
 
 async def get_by_asset(db: AsyncSession, asset_id: uuid.UUID) -> AnalystConsensus | None:

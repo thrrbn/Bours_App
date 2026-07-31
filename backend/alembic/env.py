@@ -10,12 +10,24 @@ from app.config import get_settings
 from app.database import Base
 
 # Import de tous les modeles pour qu'Alembic les detecte via Base.metadata
+# ATTENTION : cette liste doit rester synchronisee avec app/domains/*/models.py
+# a chaque ajout de domaine - sinon `alembic revision --autogenerate` genere
+# une migration incomplete sans avertissement (bug reel trouve et corrige ici :
+# analyst, notifications, portfolio et watchlist manquaient).
+from app.domains.analyst.models import AnalystConsensus  # noqa: F401
 from app.domains.assets.models import Asset  # noqa: F401
 from app.domains.backtests.models import BacktestResult, BacktestRun  # noqa: F401
 from app.domains.market_data.models import PriceBar, TechnicalIndicator  # noqa: F401
 from app.domains.news.models import NewsArticle, NewsKeywordMatch  # noqa: F401
+from app.domains.notifications.models import NotificationState  # noqa: F401
+from app.domains.portfolio.models import (  # noqa: F401
+    PortfolioPosition,
+    PortfolioState,
+    PortfolioTransaction,
+)
 from app.domains.signals.models import Signal, SignalExplanation  # noqa: F401
 from app.domains.users.models import User  # noqa: F401
+from app.domains.watchlist.models import WatchlistItem  # noqa: F401
 
 config = context.config
 settings = get_settings()

@@ -23,3 +23,9 @@ class BacktestResultRead(BaseModel):
     calmar_ratio: float | None = None
     profit_factor: float | None = None
     avg_risk_reward: float | None = None
+    # 31/07/2026 : integration backtesting.py (voir kernc_engine.py).
+    # strategy_name distingue "internal_rules" du nouveau moteur ; extra_metrics
+    # porte les statistiques riches de backtesting.py sans equivalent type
+    # ci-dessus (Sortino, Exposure Time, SQN, Best/Worst Trade...).
+    strategy_name: str | None = None
+    extra_metrics: dict | None = None

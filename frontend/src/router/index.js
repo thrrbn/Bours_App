@@ -5,6 +5,7 @@ import SignalHistoryView from "../views/SignalHistoryView.vue";
 import WatchlistView from "../views/WatchlistView.vue";
 import PortfolioView from "../views/PortfolioView.vue";
 import TopBuysView from "../views/TopBuysView.vue";
+import AssetStatusView from "../views/AssetStatusView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -15,6 +16,7 @@ const router = createRouter({
     { path: "/watchlist", name: "watchlist", component: WatchlistView },
     { path: "/portfolio", name: "portfolio", component: PortfolioView },
     { path: "/top-buys", name: "top-buys", component: TopBuysView },
+    { path: "/status", name: "status", component: AssetStatusView },
   ],
 });
 

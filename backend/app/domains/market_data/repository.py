@@ -1,8 +1,10 @@
 """Acces aux donnees de marche - upserts idempotents, aucune logique metier."""
+import math
 import uuid
+from datetime import date
 
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +12,18 @@ from app.domains.market_data.models import PriceBar, TechnicalIndicator
 from app.domains.market_data.providers.base import PriceBarDTO
 
 
-async def upsert_price_bars(db: AsyncSession, asset_id: uuid.UUID, bars: list[PriceBarDTO]) -> None:
+def _is_valid_bar(bar: PriceBarDTO) -> bool:
+    """Defense en profondeur (voir yahoo_finance.py) : rejette toute barre
+    dont l'OHLC contiendrait un NaN, quel que soit le provider - un cours
+    invalide ne doit jamais atteindre price_bars (il empoisonnerait ensuite
+    irreversiblement le portefeuille virtuel, voir portfolio/service.py)."""
+    return not any(math.isnan(v) for v in (bar.open, bar.high, bar.low, bar.close))
+
+
+async def upsert_price_bars(
+    db: AsyncSession, asset_id: uuid.UUID, bars: list[PriceBarDTO], source: str = "yahoo_finance"
+) -> None:
+    bars = [b for b in bars if _is_valid_bar(b)]
     if not bars:
         return
     values = [
@@ -23,6 +36,7 @@ async def upsert_price_bars(db: AsyncSession, asset_id: uuid.UUID, bars: list[Pr
             "close": bar.close,
             "adjusted_close": bar.adjusted_close,
             "volume": bar.volume,
+            "source": source,
         }
         for bar in bars
     ]
@@ -36,6 +50,7 @@ async def upsert_price_bars(db: AsyncSession, asset_id: uuid.UUID, bars: list[Pr
             "close": stmt.excluded.close,
             "adjusted_close": stmt.excluded.adjusted_close,
             "volume": stmt.excluded.volume,
+            "source": stmt.excluded.source,
         },
     )
     await db.execute(stmt)
@@ -59,6 +74,15 @@ async def get_latest_bar(db: AsyncSession, asset_id: uuid.UUID) -> PriceBar | No
     stmt = select(PriceBar).where(PriceBar.asset_id == asset_id).order_by(PriceBar.trade_date.desc()).limit(1)
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
+
+
+async def get_latest_price_dates(db: AsyncSession) -> dict[uuid.UUID, date]:
+    """Derniere date de cotation connue, groupee par actif (tous actifs en
+    UNE requete) - utilise par assets/service.py:get_status_overview() pour
+    afficher la fraicheur des prix sans requete N+1."""
+    stmt = select(PriceBar.asset_id, func.max(PriceBar.trade_date)).group_by(PriceBar.asset_id)
+    result = await db.execute(stmt)
+    return {asset_id: trade_date for asset_id, trade_date in result.all()}
 
 
 async def get_latest_indicators(db: AsyncSession, asset_id: uuid.UUID) -> TechnicalIndicator | None:

@@ -22,6 +22,7 @@ from app.domains.market_data import repository as market_data_repository
 from app.domains.news import repository as news_repository
 from app.domains.portfolio import repository as portfolio_repository
 from app.domains.signals import service as signals_service
+from app.domains.signals.training import TrainingExample, build_training_set
 
 CONSENSUS_BUY_THRESHOLD = 0.5
 CONSENSUS_SELL_THRESHOLD = -0.5
@@ -133,12 +134,14 @@ async def get_portfolio_alerts(db: AsyncSession) -> list[PortfolioAlertRead]:
     return alerts
 
 
-async def get_comparison(db: AsyncSession, asset_id: uuid.UUID, horizon: str) -> ComparisonRead:
+async def get_comparison(
+    db: AsyncSession, asset_id: uuid.UUID, horizon: str, training_examples: list[TrainingExample] | None = None
+) -> ComparisonRead:
     asset = await assets_repository.get_by_id(db, asset_id)
     if asset is None:
         raise AssetNotFoundError(str(asset_id))
 
-    signal = await signals_service.get_or_compute_signal(db, asset_id, horizon)
+    signal = await signals_service.get_or_compute_signal(db, asset_id, horizon, training_examples=training_examples)
     rules_direction = RULES_DIRECTION_MAP.get(signal.final_signal, "neutre")
 
     ml_direction = None
@@ -188,12 +191,24 @@ async def get_comparison_table(db: AsyncSession, horizon: str) -> list[Compariso
     les analystes externes - le but etant de juger visuellement, au fil du
     temps, laquelle des deux sources colle le mieux a la realite (voir
     docs/11, section modele statistique V2).
+
+    Bug de performance reel corrige le 30/07/2026 : chaque ligne appelait
+    signals_service.get_or_compute_signal(), qui reconstruisait
+    integralement le jeu d'entrainement ML (build_training_set - un
+    aller-retour DB par signal existant, tous actifs confondus) A CHAQUE
+    ACTIF. Avec 20-30 actifs c'etait lent mais tolerable ; avec l'univers
+    elargi (~189 actifs possibles depuis le seed CAC40/DAX40/AEX/US), ce
+    O(nb_actifs x nb_signaux) rendait l'endpoint quasi infini ("tourne en
+    boucle"). Desormais construit UNE SEULE FOIS ici et reutilise pour
+    chaque ligne - meme correctif applique a jobs/compute_signals_job.py,
+    qui avait exactement le meme defaut pour le cron quotidien.
     """
+    training_examples = await build_training_set(db)
     assets = await assets_repository.list_all(db)
     rows: list[ComparisonRead] = []
     for asset in assets:
         try:
-            rows.append(await get_comparison(db, asset.id, horizon))
+            rows.append(await get_comparison(db, asset.id, horizon, training_examples=training_examples))
         except Exception:
             continue  # actif sans historique suffisant pour un signal - on l'exclut du tableau, pas d'erreur globale
 

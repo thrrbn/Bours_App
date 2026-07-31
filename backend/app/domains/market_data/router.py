@@ -7,15 +7,15 @@ from app.core.exceptions import AssetNotFoundError
 from app.database import get_db
 from app.domains.assets import repository as assets_repository
 from app.domains.market_data import repository
-from app.domains.market_data.providers.yahoo_finance import YahooFinanceProvider
 from app.domains.market_data.schemas import HistoricalTrendRead, PriceBarRead, TechnicalIndicatorRead
-from app.domains.market_data.service import compute_and_store_indicators, compute_historical_trend, ingest_history
+from app.domains.market_data.service import (
+    compute_and_store_indicators,
+    compute_historical_trend,
+    ingest_history,
+    provider_for_market,
+)
 
 router = APIRouter(prefix="/api/v1/market-data", tags=["market_data"])
-
-# Instance unique du provider - pas besoin d'en recreer un par requete
-# (voir docs/08-pipeline-ingestion.md sur l'abstraction MarketDataProvider).
-_provider = YahooFinanceProvider()
 
 
 @router.get("/{asset_id}/prices", response_model=list[PriceBarRead])
@@ -47,8 +47,9 @@ async def refresh_all_market_data(db: AsyncSession = Depends(get_db)):
     results = []
     errors = 0
     for asset in assets:
+        provider, source = provider_for_market(asset.market)
         try:
-            bars_ingested = await ingest_history(db, asset.id, asset.ticker, _provider)
+            bars_ingested = await ingest_history(db, asset.id, asset.ticker, provider, source=source)
             indicators_computed = await compute_and_store_indicators(db, asset.id)
             results.append(
                 {"ticker": asset.ticker, "bars_ingested": bars_ingested, "indicators_computed": indicators_computed}
@@ -62,21 +63,25 @@ async def refresh_all_market_data(db: AsyncSession = Depends(get_db)):
 @router.post("/{asset_id}/refresh")
 async def refresh_market_data(asset_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """
-    Force une ingestion immediate des prix (Yahoo Finance) et un recalcul des
-    indicateurs techniques pour cet actif, sans attendre le job planifie
-    quotidien (docs/14-jobs-planifies.md). Utile en developpement/debug pour
-    tester le pipeline sans attendre 06:00.
+    Force une ingestion immediate des prix (Yahoo Finance pour les actions/ETF,
+    Binance pour les actifs de marche "BINANCE") et un recalcul des indicateurs
+    techniques pour cet actif, sans attendre le job planifie quotidien
+    (docs/14-jobs-planifies.md). Utile en developpement/debug pour tester le
+    pipeline sans attendre 06:00.
     """
     asset = await assets_repository.get_by_id(db, asset_id)
     if asset is None:
         raise AssetNotFoundError(str(asset_id))
 
-    bars_ingested = await ingest_history(db, asset.id, asset.ticker, _provider)
+    provider, source = provider_for_market(asset.market)
+    bars_ingested = await ingest_history(db, asset.id, asset.ticker, provider, source=source)
     indicators_computed = await compute_and_store_indicators(db, asset.id)
+    latest_bar = await repository.get_latest_bar(db, asset_id)
 
     return {
         "asset_id": str(asset_id),
         "ticker": asset.ticker,
         "bars_ingested": bars_ingested,
         "indicators_computed": indicators_computed,
+        "latest_trade_date": latest_bar.trade_date if latest_bar else None,
     }
