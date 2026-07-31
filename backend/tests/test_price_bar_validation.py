@@ -9,8 +9,19 @@ Ces tests couvrent les deux garde-fous ajoutes (fonctions pures, testables
 sans base de donnees ni appel reseau) : le filtre a l'ingestion
 (market_data/repository.py:_is_valid_bar) et le garde-fou a l'achat/vente
 (portfolio/service.py:_get_latest_price).
+
+Suite du 31/07/2026 (voir docs/STACK.md) : filtrer le NaN a l'ingestion
+n'empeche pas une ligne DEJA corrompue AVANT le correctif de rester "la plus
+recente par date" indefiniment (un rafraichissement ulterieur ne la remplace
+que si Yahoo Finance renvoie entre-temps une valeur non-NaN pour CETTE MEME
+date). Corrige a la source dans get_latest_bar() (filtre SQL). Le test
+ci-dessous verifie la requete compilee plutot que d'executer contre une vraie
+base (convention du projet : pas de DB reelle dans les tests), mais confirme
+que Decimal('NaN') est bien utilise (piege Postgres : NaN = NaN est VRAI pour
+NUMERIC, contrairement a IEEE754 - `close != close` ne fonctionnerait pas).
 """
 import math
+import uuid
 from datetime import date
 from types import SimpleNamespace
 
@@ -18,7 +29,7 @@ import pytest
 
 from app.core.exceptions import InsufficientDataError
 from app.domains.market_data.providers.base import PriceBarDTO
-from app.domains.market_data.repository import _is_valid_bar
+from app.domains.market_data.repository import _is_valid_bar, get_latest_bar
 from app.domains.portfolio.service import _get_latest_price
 
 
@@ -81,3 +92,34 @@ async def test_get_latest_price_accepts_valid_close(monkeypatch):
     price, trade_date = await _get_latest_price(db=None, asset_id=None)
     assert price == 105.5
     assert trade_date == date(2026, 7, 30)
+
+
+class _CapturingSession:
+    """Double minimal qui capture le SELECT construit par get_latest_bar()
+    sans se connecter a une vraie base - on verifie la requete COMPILEE plutot
+    que son execution (convention du projet, voir docstring en tete de fichier)."""
+
+    def __init__(self):
+        self.captured_stmt = None
+
+    async def execute(self, stmt):
+        self.captured_stmt = stmt
+
+        class _Result:
+            def scalar_one_or_none(self_inner):
+                return None
+
+        return _Result()
+
+
+@pytest.mark.asyncio
+async def test_get_latest_bar_query_excludes_nan_and_non_positive_close():
+    session = _CapturingSession()
+    await get_latest_bar(session, uuid.uuid4())
+
+    compiled = str(session.captured_stmt.compile(compile_kwargs={"literal_binds": True}))
+    # Piege Postgres (voir docstring de get_latest_bar) : NaN = NaN est VRAI
+    # pour NUMERIC, donc on doit comparer explicitement a la valeur Decimal
+    # NaN plutot qu'a un `close != close` qui ne filtrerait rien.
+    assert "NaN" in compiled
+    assert "price_bars.close > 0" in compiled or "price_bars.close > 0.0" in compiled

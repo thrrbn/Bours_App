@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
+from app.domains.analysis_lab.router import router as analysis_lab_router
 from app.domains.analyst.router import router as analyst_router
 from app.domains.assets.router import router as assets_router
 from app.domains.backtests.router import router as backtests_router
@@ -53,6 +54,7 @@ app.include_router(notifications_router)
 app.include_router(portfolio_router)
 app.include_router(analyst_router)
 app.include_router(maintenance_router)
+app.include_router(analysis_lab_router)
 
 
 @app.get("/api/v1/health")

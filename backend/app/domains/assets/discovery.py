@@ -53,8 +53,33 @@ _EXCHANGE_TO_MARKET = {
     "ASE": "NYSE",
 }
 
+# Suffixe de ticker (convention Yahoo Finance) -> market utilise ailleurs
+# dans le projet (seed_data_cac40.py/seed_data_dax.py/seed_data_aex.py) -
+# verifie AVANT le code d'exchange Yahoo ci-dessus : plus fiable pour les
+# places europeennes, ou `quote.get("exchange")` renvoie des codes non
+# couverts par _EXCHANGE_TO_MARKET (ex. "PAR", "BRU", "GER" selon les
+# versions de yfinance, jamais garanti - voir docs/17).
+_SUFFIX_TO_MARKET = {
+    ".PA": "EURONEXT_PARIS",
+    ".BR": "EURONEXT_BRUSSELS",
+    ".AS": "EURONEXT_AMSTERDAM",
+    ".DE": "XETRA",
+}
 
-def _guess_market(quote: dict) -> str:
+
+def guess_market(quote: dict, ticker: str | None = None) -> str:
+    """Fonction pure, reutilisee aussi par fundamentals_provider.py (recherche
+    live d'un ticker non suivi, voir service.py::lookup_ticker) - meme dict
+    'quote'/'info' shape (cles exchange/fullExchangeName communes aux
+    reponses yf.screen(...) et Ticker(...).info). `ticker` est optionnel
+    (absent des reponses screener, mais toujours connu lors d'un lookup
+    direct) - son suffixe est verifie en premier, plus fiable pour les
+    places europeennes que le code d'exchange Yahoo."""
+    if ticker:
+        upper = ticker.upper()
+        for suffix, market in _SUFFIX_TO_MARKET.items():
+            if upper.endswith(suffix):
+                return market
     exchange = quote.get("exchange", "")
     if exchange in _EXCHANGE_TO_MARKET:
         return _EXCHANGE_TO_MARKET[exchange]
@@ -78,7 +103,7 @@ def parse_screener_quotes(payload: dict) -> list[dict]:
         if not symbol:
             continue
         name = quote.get("shortName") or quote.get("longName") or symbol
-        out.append({"symbol": symbol, "name": name, "market_guess": _guess_market(quote)})
+        out.append({"symbol": symbol, "name": name, "market_guess": guess_market(quote, ticker=symbol)})
     return out
 
 

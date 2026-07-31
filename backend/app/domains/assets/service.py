@@ -3,11 +3,12 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AssetNotFoundError
+from app.core.exceptions import AssetNotFoundError, ConflictError, DataProviderError
 from app.domains.analyst import repository as analyst_repository
-from app.domains.assets import discovery, repository
+from app.domains.assets import discovery, fundamentals_provider, fundamentals_repository, repository
+from app.domains.assets.fundamentals_models import AssetFundamentals
 from app.domains.assets.models import Asset
-from app.domains.assets.schemas import AssetCreate
+from app.domains.assets.schemas import AssetCreate, AssetLookupRead, SectorComparisonRead, SectorPeerAverage
 from app.domains.assets.seed_data import BEL20_ASSETS
 from app.domains.assets.seed_data_aex import AEX_ASSETS
 from app.domains.assets.seed_data_binance import BINANCE_MAJORS_ASSETS
@@ -15,7 +16,9 @@ from app.domains.assets.seed_data_cac40 import CAC40_ASSETS
 from app.domains.assets.seed_data_dax import DAX40_ASSETS
 from app.domains.assets.seed_data_us import US_MAJORS_ASSETS
 from app.domains.market_data import repository as market_data_repository
+from app.domains.portfolio import repository as portfolio_repository
 from app.domains.signals import repository as signals_repository
+from app.domains.watchlist import repository as watchlist_repository
 
 
 async def get_asset_or_raise(db: AsyncSession, asset_id: uuid.UUID) -> Asset:
@@ -39,8 +42,41 @@ async def list_assets(db: AsyncSession, market: str | None, sector: str | None) 
 async def create_asset(db: AsyncSession, payload: AssetCreate) -> Asset:
     existing = await repository.get_by_ticker(db, payload.ticker, payload.market)
     if existing is not None:
+        if not existing.is_active:
+            # Reactivation : l'actif avait ete retire (voir delete_asset)
+            # mais son historique (prix/signaux/news) est reste en base -
+            # on le rend juste de nouveau visible/rafraichi, plutot que de
+            # creer un doublon bloque par la contrainte uq_asset_ticker_market.
+            return await repository.set_active(db, existing, True)
         return existing
     return await repository.create(db, payload)
+
+
+async def delete_asset(db: AsyncSession, asset_id: uuid.UUID) -> None:
+    """
+    Retire un actif de la liste (desactivation, PAS une suppression physique
+    - l'historique de prix/signaux/news reste en base, voir repository.py::
+    set_active) pour alleger l'univers effectivement traite par les jobs
+    planifies (ingest_prices/news, compute_signals, refresh_analyst_ratings,
+    daily_briefing - tous filtrent deja sur is_active=True, voir
+    repository.list_all). Refuse (409) si l'actif est encore detenu en
+    portefeuille virtuel : vendre la position avant de le retirer, pour ne
+    pas laisser une position "orpheline" sans plus aucun prix/signal frais.
+    """
+    asset = await get_asset_or_raise(db, asset_id)
+
+    position = await portfolio_repository.get_position(db, asset_id)
+    if position is not None and float(position.quantity) > 0:
+        raise ConflictError(
+            f"{asset.ticker} est encore detenu en portefeuille virtuel ({position.quantity} unites) - "
+            "vends la position avant de retirer ce titre."
+        )
+
+    watchlist_item = await watchlist_repository.get_by_asset_id(db, asset_id)
+    if watchlist_item is not None:
+        await watchlist_repository.remove(db, watchlist_item)
+
+    await repository.set_active(db, asset, False)
 
 
 async def _seed(db: AsyncSession, rows: list[dict]) -> dict:
@@ -125,6 +161,113 @@ async def discover_candidates(db: AsyncSession, limit: int = 10) -> list[dict]:
     """
     tracked = await repository.get_tracked_tickers(db)
     return await discovery.discover_candidates(tracked, max_candidates=limit)
+
+
+async def get_fundamentals(db: AsyncSession, asset_id: uuid.UUID) -> AssetFundamentals | None:
+    """None si jamais rafraichi pour ce titre (voir POST
+    /assets/{id}/fundamentals/refresh) - pas une erreur, juste "pas encore
+    consulte"."""
+    await get_asset_or_raise(db, asset_id)  # 404 si l'actif lui-meme n'existe pas
+    return await fundamentals_repository.get_by_asset(db, asset_id)
+
+
+async def refresh_fundamentals(db: AsyncSession, asset_id: uuid.UUID) -> AssetFundamentals:
+    """Va chercher les fondamentaux actuels sur Yahoo Finance et les
+    remplace (upsert) - meme pattern que analyst/service.py::refresh_for_asset,
+    a la demande plutot que planifie (pas de cron dedie pour l'instant)."""
+    asset = await get_asset_or_raise(db, asset_id)
+    dto = fundamentals_provider.fetch_fundamentals(asset.ticker)
+    return await fundamentals_repository.upsert(
+        db,
+        asset_id,
+        sector=dto.sector,
+        industry=dto.industry,
+        market_cap=dto.market_cap,
+        trailing_pe=dto.trailing_pe,
+        forward_pe=dto.forward_pe,
+        dividend_yield=dto.dividend_yield,
+        week52_low=dto.week52_low,
+        week52_high=dto.week52_high,
+        beta=dto.beta,
+        business_summary=dto.business_summary,
+    )
+
+
+async def get_sector_comparison(db: AsyncSession, asset_id: uuid.UUID) -> SectorComparisonRead:
+    """Compare le PER/rendement/capitalisation de ce titre a la MOYENNE des
+    autres actifs suivis du meme secteur DONT les fondamentaux ont deja ete
+    rafraichis (voir fundamentals_repository.py::list_by_sector) - aucun
+    appel Yahoo Finance supplementaire ici, la comparaison s'enrichit
+    seulement au fil des rafraichissements deja demandes par l'utilisateur
+    sur d'autres titres."""
+    asset = await get_asset_or_raise(db, asset_id)
+    fundamentals = await fundamentals_repository.get_by_asset(db, asset_id)
+    sector = fundamentals.sector if fundamentals and fundamentals.sector else asset.sector
+
+    if not sector:
+        return SectorComparisonRead(
+            asset=asset,
+            this_trailing_pe=fundamentals.trailing_pe if fundamentals else None,
+            this_dividend_yield=fundamentals.dividend_yield if fundamentals else None,
+            this_market_cap=fundamentals.market_cap if fundamentals else None,
+            peers=None,
+            note="Secteur inconnu pour ce titre - rafraichis d'abord ses fondamentaux.",
+        )
+
+    peers = await fundamentals_repository.list_by_sector(db, sector, asset_id)
+    if not peers:
+        peer_avg = None
+        note = (
+            f"Aucun autre actif suivi du secteur « {sector} » n'a encore de fondamentaux rafraichis - "
+            "rafraichis-en d'autres pour enrichir la comparaison."
+        )
+    else:
+        pe_values = [p.trailing_pe for p in peers if p.trailing_pe is not None]
+        yield_values = [p.dividend_yield for p in peers if p.dividend_yield is not None]
+        cap_values = [p.market_cap for p in peers if p.market_cap is not None]
+        peer_avg = SectorPeerAverage(
+            sector=sector,
+            peer_count=len(peers),
+            avg_trailing_pe=round(sum(pe_values) / len(pe_values), 2) if pe_values else None,
+            avg_dividend_yield=round(sum(yield_values) / len(yield_values), 2) if yield_values else None,
+            avg_market_cap=round(sum(cap_values) / len(cap_values), 0) if cap_values else None,
+        )
+        note = f"Comparaison basee sur {len(peers)} autre(s) actif(s) suivi(s) du secteur « {sector} » (fondamentaux deja rafraichis)."
+
+    return SectorComparisonRead(
+        asset=asset,
+        this_trailing_pe=fundamentals.trailing_pe if fundamentals else None,
+        this_dividend_yield=fundamentals.dividend_yield if fundamentals else None,
+        this_market_cap=fundamentals.market_cap if fundamentals else None,
+        peers=peer_avg,
+        note=note,
+    )
+
+
+async def lookup_ticker(db: AsyncSession, ticker: str) -> AssetLookupRead:
+    """Recherche live sur Yahoo Finance d'un ticker PAS forcement suivi (voir
+    router.py: GET /assets/lookup) - contrairement a search_assets() qui ne
+    cherche que dans les actifs deja en base. Leve DataProviderError (502) si
+    Yahoo ne connait pas ce ticker - a l'utilisateur de corriger l'orthographe
+    ou le suffixe de place (.PA, .BR, .DE, .AS...)."""
+    normalized = ticker.strip().upper()
+    if not normalized:
+        raise DataProviderError("Ticker vide.")
+
+    dto = fundamentals_provider.fetch_fundamentals(normalized)
+    existing = await repository.get_by_ticker_any_market(db, normalized)
+
+    return AssetLookupRead(
+        ticker=normalized,
+        name=dto.name,
+        market_guess=dto.market_guess,
+        currency=dto.currency,
+        sector=dto.sector,
+        industry=dto.industry,
+        last_price=dto.last_price,
+        market_cap=dto.market_cap,
+        already_tracked_id=existing.id if existing else None,
+    )
 
 
 async def seed_everything(db: AsyncSession) -> dict:

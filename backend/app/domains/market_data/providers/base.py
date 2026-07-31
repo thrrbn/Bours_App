@@ -20,6 +20,14 @@ class PriceBarDTO:
     volume: int
 
 
+@dataclass
+class DividendDTO:
+    """31/07/2026 : voir market_data/models.py::Dividend."""
+
+    ex_date: date
+    amount_per_share: float
+
+
 class MarketDataProvider(ABC):
     @abstractmethod
     async def fetch_history(self, ticker: str, start: date, end: date) -> list[PriceBarDTO]:

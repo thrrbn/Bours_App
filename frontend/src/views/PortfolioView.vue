@@ -6,6 +6,10 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { usePortfolioStore } from "../stores/portfolio";
 import { useAnalystStore } from "../stores/analyst";
 import AssetAutocomplete from "../components/AssetAutocomplete.vue";
+import HorizonTabs from "../components/HorizonTabs.vue";
+import SignalCard from "../components/SignalCard.vue";
+import ParamsLabPanel from "../components/ParamsLabPanel.vue";
+import apiClient from "../api/client";
 
 const store = usePortfolioStore();
 const analystStore = useAnalystStore();
@@ -13,6 +17,27 @@ const analystStore = useAnalystStore();
 const buyAsset = ref(null);
 const buyQuantity = ref(1);
 const sellQuantities = reactive({});
+
+// 31/07/2026 : "outil pedagogique" (voir docs/STACK.md) - permet, pour
+// chaque position, de voir COMMENT le signal qui a motive l'achat est
+// calcule (scores, explications, apercu ML), sans dupliquer la logique du
+// dashboard. Etat local a la vue plutot que le store signals partage
+// (signalsByHorizon n'est pas indexe par actif - l'utiliser ici entrerait en
+// collision des qu'on ouvre le detail de deux positions differentes).
+const expandedAssetId = ref(null);
+const expandedHorizon = reactive({}); // { [assetId]: 'short'|'medium'|'long' }
+const signalCache = reactive({}); // { 'assetId:horizon': signal | 'loading' | 'error' }
+
+// 31/07/2026 : panneau interactif du laboratoire de parametres
+// (ParamsLabPanel.vue) - distinct du panneau "pourquoi ce signal ?"
+// ci-dessus (un seul des deux ouvert a la fois par position, pas de
+// contrainte technique, juste pour eviter une ligne trop chargee).
+const expandedParamsAssetId = ref(null);
+
+function toggleParamsLab(position) {
+  const assetId = position.asset.id;
+  expandedParamsAssetId.value = expandedParamsAssetId.value === assetId ? null : assetId;
+}
 
 onMounted(async () => {
   await store.loadSummary();
@@ -47,6 +72,38 @@ async function onBuy() {
 async function onSell(position) {
   const quantity = Number(sellQuantities[position.asset.id] ?? position.quantity);
   await store.sell(position.asset.id, quantity);
+}
+
+function cacheKey(assetId, horizon) {
+  return `${assetId}:${horizon}`;
+}
+
+async function loadPositionSignal(assetId, horizon) {
+  const key = cacheKey(assetId, horizon);
+  if (signalCache[key] && signalCache[key] !== "error") return;
+  signalCache[key] = "loading";
+  try {
+    const { data } = await apiClient.get(`/signals/${assetId}`, { params: { horizon } });
+    signalCache[key] = data;
+  } catch (err) {
+    signalCache[key] = "error";
+  }
+}
+
+function toggleDetails(position) {
+  const assetId = position.asset.id;
+  if (expandedAssetId.value === assetId) {
+    expandedAssetId.value = null;
+    return;
+  }
+  expandedAssetId.value = assetId;
+  if (!expandedHorizon[assetId]) expandedHorizon[assetId] = "medium";
+  loadPositionSignal(assetId, expandedHorizon[assetId]);
+}
+
+function onHorizonChange(assetId, horizon) {
+  expandedHorizon[assetId] = horizon;
+  loadPositionSignal(assetId, horizon);
 }
 
 async function onReset() {
@@ -151,36 +208,71 @@ async function onReset() {
         </tr>
       </thead>
       <tbody class="divide-y">
-        <tr v-for="position in store.summary.positions" :key="position.asset.id">
-          <td class="px-3 py-2">
-            <span class="font-medium">{{ position.asset.ticker }}</span>
-            <span class="text-gray-500 text-xs block">{{ position.asset.name }}</span>
-          </td>
-          <td class="px-3 py-2 text-right">{{ position.quantity }}</td>
-          <td class="px-3 py-2 text-right">{{ fmt(position.avg_cost) }}</td>
-          <td class="px-3 py-2 text-right">{{ fmt(position.current_price) }}</td>
-          <td class="px-3 py-2 text-right">{{ fmt(position.market_value) }}</td>
-          <td class="px-3 py-2 text-right" :class="pnlClass(position.unrealized_pnl)">
-            {{ position.unrealized_pnl >= 0 ? "+" : "" }}{{ fmt(position.unrealized_pnl) }}
-            <span class="text-xs block">
-              ({{ position.unrealized_pnl_pct >= 0 ? "+" : "" }}{{ fmt(position.unrealized_pnl_pct) }}%)
-            </span>
-          </td>
-          <td class="px-3 py-2 text-right">
-            <div class="flex gap-1 justify-end">
-              <input
-                v-model="sellQuantities[position.asset.id]"
-                type="number"
-                min="0.000001"
-                :max="position.quantity"
-                step="any"
-                class="border rounded px-2 py-1 text-xs w-20"
-                :placeholder="String(position.quantity)"
+        <template v-for="position in store.summary.positions" :key="position.asset.id">
+          <tr>
+            <td class="px-3 py-2">
+              <button class="text-left group" @click="toggleDetails(position)">
+                <span class="font-medium group-hover:underline">{{ position.asset.ticker }}</span>
+                <span class="text-gray-500 text-xs block">{{ position.asset.name }}</span>
+                <span class="text-xs text-gray-400">
+                  {{ expandedAssetId === position.asset.id ? "▾" : "▸" }} pourquoi ce signal ?
+                </span>
+              </button>
+              <button class="text-left group block mt-0.5" @click="toggleParamsLab(position)">
+                <span class="text-xs text-gray-400 group-hover:underline">
+                  {{ expandedParamsAssetId === position.asset.id ? "▾" : "▸" }} tester les parametres (labo)
+                </span>
+              </button>
+            </td>
+            <td class="px-3 py-2 text-right">{{ position.quantity }}</td>
+            <td class="px-3 py-2 text-right">{{ fmt(position.avg_cost) }}</td>
+            <td class="px-3 py-2 text-right">{{ fmt(position.current_price) }}</td>
+            <td class="px-3 py-2 text-right">{{ fmt(position.market_value) }}</td>
+            <td class="px-3 py-2 text-right" :class="pnlClass(position.unrealized_pnl)">
+              {{ position.unrealized_pnl >= 0 ? "+" : "" }}{{ fmt(position.unrealized_pnl) }}
+              <span class="text-xs block">
+                ({{ position.unrealized_pnl_pct >= 0 ? "+" : "" }}{{ fmt(position.unrealized_pnl_pct) }}%)
+              </span>
+            </td>
+            <td class="px-3 py-2 text-right">
+              <div class="flex gap-1 justify-end">
+                <input
+                  v-model="sellQuantities[position.asset.id]"
+                  type="number"
+                  min="0.000001"
+                  :max="position.quantity"
+                  step="any"
+                  class="border rounded px-2 py-1 text-xs w-20"
+                  :placeholder="String(position.quantity)"
+                />
+                <button class="text-xs text-red-500 hover:underline" @click="onSell(position)">Vendre</button>
+              </div>
+            </td>
+          </tr>
+          <tr v-if="expandedAssetId === position.asset.id" class="bg-gray-50">
+            <td colspan="7" class="px-3 py-4">
+              <HorizonTabs
+                :model-value="expandedHorizon[position.asset.id]"
+                @update:model-value="(h) => onHorizonChange(position.asset.id, h)"
               />
-              <button class="text-xs text-red-500 hover:underline" @click="onSell(position)">Vendre</button>
-            </div>
-          </td>
-        </tr>
+              <p v-if="signalCache[cacheKey(position.asset.id, expandedHorizon[position.asset.id])] === 'loading'" class="text-sm text-gray-500">
+                Calcul du signal...
+              </p>
+              <p v-else-if="signalCache[cacheKey(position.asset.id, expandedHorizon[position.asset.id])] === 'error'" class="text-sm text-red-600">
+                Impossible de charger le signal pour cet actif (historique insuffisant ?).
+              </p>
+              <SignalCard
+                v-else-if="signalCache[cacheKey(position.asset.id, expandedHorizon[position.asset.id])]"
+                :signal="signalCache[cacheKey(position.asset.id, expandedHorizon[position.asset.id])]"
+              />
+            </td>
+          </tr>
+          <tr v-if="expandedParamsAssetId === position.asset.id" class="bg-gray-50">
+            <td colspan="7" class="px-3 py-4">
+              <ParamsLabPanel :asset-id="position.asset.id" />
+            </td>
+          </tr>
+        </template>
       </tbody>
     </table>
 
@@ -189,14 +281,19 @@ async function onReset() {
       <li v-for="tx in store.transactions" :key="tx.id" class="px-3 py-2">
         <div class="flex justify-between">
           <span>
-            <span class="font-medium">{{ tx.side === "buy" ? "Achat" : "Vente" }}</span>
-            {{ tx.quantity }} x {{ tx.asset.ticker }} @ {{ fmt(tx.price) }}
+            <span class="font-medium">
+              {{ tx.side === "buy" ? "Achat" : tx.side === "sell" ? "Vente" : "Dividende" }}
+            </span>
+            <template v-if="tx.side === 'dividend'">
+              {{ tx.quantity }} x {{ tx.asset.ticker }} @ {{ fmt(tx.price) }} EUR/action - net {{ fmt(tx.total_amount) }} EUR
+            </template>
+            <template v-else>{{ tx.quantity }} x {{ tx.asset.ticker }} @ {{ fmt(tx.price) }}</template>
           </span>
           <span class="text-gray-400 text-xs">{{ new Date(tx.executed_at).toLocaleString() }}</span>
         </div>
-        <div v-if="tx.quoted_price !== null && tx.quoted_price !== undefined" class="text-xs text-gray-400 mt-0.5">
+        <div v-if="tx.side !== 'dividend' && tx.quoted_price !== null && tx.quoted_price !== undefined" class="text-xs text-gray-400 mt-0.5">
           Cours cote {{ fmt(tx.quoted_price) }} - slippage {{ fmt(tx.slippage_amount) }} EUR - commission
-          {{ fmt(tx.commission) }} EUR
+          {{ fmt(tx.commission) }} EUR<template v-if="tx.tob_amount"> - TOB {{ fmt(tx.tob_amount) }} EUR</template>
         </div>
       </li>
     </ul>

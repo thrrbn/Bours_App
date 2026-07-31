@@ -61,6 +61,22 @@ class Settings(BaseSettings):
     # applique au cours execute (achat plus cher, vente moins bien payee).
     portfolio_commission_per_trade: float = 2.0
     portfolio_slippage_pct: float = 0.001
+    # 31/07/2026 : couts complementaires identifies comme manquants pour un
+    # rendement simule proche de la theorie (voir docs/STACK.md).
+    # Taxe belge sur les operations de bourse (TOB/beurstaks) - taux le plus
+    # courant pour des actions cotees (0,35%). ESTIMATION SIMPLIFIEE : le taux
+    # reel varie selon le type d'instrument (obligations 0,12%, fonds de
+    # capitalisation 1,32%) et un plafond par transaction existe - non
+    # applique aux actifs "BINANCE" (la TOB ne s'applique pas aux cryptos,
+    # voir portfolio/service.py). A ajuster/verifier avec son propre courtier,
+    # ce n'est pas un conseil fiscal (voir domaine compliance).
+    portfolio_tob_pct: float = 0.0035
+    # Precompte mobilier belge standard sur dividendes (30%) - ESTIMATION
+    # SIMPLIFIEE : ne tient pas compte des conventions fiscales bilaterales,
+    # de la retenue a la source etrangere (ex. 15% US/BE via formulaire W-8BEN)
+    # ni du regime "dividendes 800 EUR" (exoneration partielle declarative).
+    # A ajuster selon sa situation reelle - voir docs/STACK.md.
+    portfolio_dividend_withholding_pct: float = 0.30
 
 
 @lru_cache

@@ -19,10 +19,15 @@ def _normalize(text: str) -> str:
     return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
 
 
-def extract_keywords(text: str) -> list[KeywordMatch]:
+def extract_keywords(text: str, extra_lexicon: dict[str, dict] | None = None) -> list[KeywordMatch]:
+    """`extra_lexicon` : mots-cles personnalises de l'utilisateur (voir
+    custom_keywords_repository.py::as_lexicon), meme format que
+    KEYWORD_LEXICON - fusionnes ici, les mots-cles perso l'emportent en cas de
+    collision de nom (permet de surcharger le poids d'un terme existant)."""
+    lexicon = {**KEYWORD_LEXICON, **extra_lexicon} if extra_lexicon else KEYWORD_LEXICON
     normalized = _normalize(text)
     matches: list[KeywordMatch] = []
-    for keyword, config in KEYWORD_LEXICON.items():
+    for keyword, config in lexicon.items():
         pattern = _normalize(keyword)
         occurrences = len(re.findall(re.escape(pattern), normalized))
         if occurrences:

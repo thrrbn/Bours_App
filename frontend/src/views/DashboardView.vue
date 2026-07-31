@@ -6,6 +6,7 @@ import { useAnalystStore } from "../stores/analyst";
 import { useMarketDataStore } from "../stores/marketData";
 import SignalCard from "../components/SignalCard.vue";
 import HorizonTabs from "../components/HorizonTabs.vue";
+import FundamentalsPanel from "../components/FundamentalsPanel.vue";
 
 const props = defineProps({ assetId: { type: String, required: true } });
 
@@ -14,6 +15,7 @@ const signalsStore = useSignalsStore();
 const analystStore = useAnalystStore();
 const marketDataStore = useMarketDataStore();
 const activeHorizon = ref("short");
+const tab = ref("overview"); // 'overview' | 'fundamentals'
 
 async function loadAll() {
   await assetsStore.loadAsset(props.assetId);
@@ -29,6 +31,9 @@ async function onRefreshConsensus() {
 
 onMounted(loadAll);
 watch(() => props.assetId, loadAll);
+watch(() => props.assetId, () => {
+  tab.value = "overview";
+});
 watch(activeHorizon, (horizon) => analystStore.loadComparison(props.assetId, horizon));
 
 function directionClass(direction) {
@@ -60,6 +65,26 @@ function fmtPct(value) {
       </p>
     </div>
 
+    <div class="flex gap-2 border-b border-gray-200 mb-4">
+      <button
+        class="px-3 py-2 text-sm border-b-2 transition-colors"
+        :class="tab === 'overview' ? 'border-gray-900 font-medium' : 'border-transparent text-gray-500 hover:text-gray-800'"
+        @click="tab = 'overview'"
+      >
+        Vue d'ensemble
+      </button>
+      <button
+        class="px-3 py-2 text-sm border-b-2 transition-colors"
+        :class="tab === 'fundamentals' ? 'border-gray-900 font-medium' : 'border-transparent text-gray-500 hover:text-gray-800'"
+        @click="tab = 'fundamentals'"
+      >
+        Fiche titre
+      </button>
+    </div>
+
+    <FundamentalsPanel v-if="tab === 'fundamentals'" :asset-id="assetId" />
+
+    <template v-if="tab === 'overview'">
     <HorizonTabs v-model="activeHorizon" />
 
     <p v-if="signalsStore.error" class="text-sm text-red-600 mb-4">{{ signalsStore.error }}</p>
@@ -163,5 +188,6 @@ function fmtPct(value) {
       </div>
       <p v-else class="text-sm text-gray-400">Chargement de la comparaison...</p>
     </div>
+    </template>
   </div>
 </template>

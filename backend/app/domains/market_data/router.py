@@ -11,6 +11,7 @@ from app.domains.market_data.schemas import HistoricalTrendRead, PriceBarRead, T
 from app.domains.market_data.service import (
     compute_and_store_indicators,
     compute_historical_trend,
+    ingest_dividends,
     ingest_history,
     provider_for_market,
 )
@@ -51,6 +52,7 @@ async def refresh_all_market_data(db: AsyncSession = Depends(get_db)):
         try:
             bars_ingested = await ingest_history(db, asset.id, asset.ticker, provider, source=source)
             indicators_computed = await compute_and_store_indicators(db, asset.id)
+            await ingest_dividends(db, asset.id, asset.ticker, provider)
             results.append(
                 {"ticker": asset.ticker, "bars_ingested": bars_ingested, "indicators_computed": indicators_computed}
             )
@@ -76,6 +78,7 @@ async def refresh_market_data(asset_id: uuid.UUID, db: AsyncSession = Depends(ge
     provider, source = provider_for_market(asset.market)
     bars_ingested = await ingest_history(db, asset.id, asset.ticker, provider, source=source)
     indicators_computed = await compute_and_store_indicators(db, asset.id)
+    await ingest_dividends(db, asset.id, asset.ticker, provider)
     latest_bar = await repository.get_latest_bar(db, asset_id)
 
     return {

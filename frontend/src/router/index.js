@@ -6,6 +6,8 @@ import WatchlistView from "../views/WatchlistView.vue";
 import PortfolioView from "../views/PortfolioView.vue";
 import TopBuysView from "../views/TopBuysView.vue";
 import AssetStatusView from "../views/AssetStatusView.vue";
+import AnalysisLabView from "../views/AnalysisLabView.vue";
+import BriefingView from "../views/BriefingView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -17,6 +19,8 @@ const router = createRouter({
     { path: "/portfolio", name: "portfolio", component: PortfolioView },
     { path: "/top-buys", name: "top-buys", component: TopBuysView },
     { path: "/status", name: "status", component: AssetStatusView },
+    { path: "/analysis-lab", name: "analysis-lab", component: AnalysisLabView },
+    { path: "/briefing", name: "briefing", component: BriefingView },
   ],
 });
 

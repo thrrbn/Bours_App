@@ -57,6 +57,23 @@ async def ingest_history(
     return len(bars)
 
 
+async def ingest_dividends(db: AsyncSession, asset_id: uuid.UUID, ticker: str, provider: MarketDataProvider) -> int:
+    """
+    31/07/2026 : ingestion de l'historique de dividendes, uniquement pour les
+    providers qui l'implementent (YahooFinanceProvider - BinanceProvider n'a
+    pas de notion de dividende, la crypto n'en verse pas via cet API). Appele
+    depuis jobs/ingest_prices_job.py et market_data/router.py:/refresh, en
+    complement de ingest_history() - jamais a la place.
+    """
+    fetch = getattr(provider, "fetch_dividends", None)
+    if fetch is None:
+        return 0
+    dividends = await fetch(ticker)
+    if not dividends:
+        return 0
+    return await repository.upsert_dividends(db, asset_id, dividends)
+
+
 def _rsi(closes: pd.Series, period: int = 14) -> pd.Series:
     delta = closes.diff()
     gain = delta.clip(lower=0)

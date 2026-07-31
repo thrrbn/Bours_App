@@ -1,10 +1,23 @@
 """Configuration Alembic - utilise la meme Base et les memes settings que l'application."""
 import asyncio
+import os
+import sys
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
+
+# Bug reel trouve le 31/07/2026 : `alembic` est invoque via son script console
+# (/usr/local/bin/alembic dans le conteneur, ou l'executable Windows en local),
+# qui n'ajoute PAS automatiquement le repertoire courant a sys.path - contrairement
+# a `python -m alembic` ou a pytest. Sans ce correctif, `from app.config import
+# get_settings` echoue avec `ModuleNotFoundError: No module named 'app'`, meme
+# en executant la commande depuis le bon dossier (backend/, ou /app dans le
+# conteneur - WORKDIR du Dockerfile). On force explicitement le dossier parent
+# de alembic/ (= backend/, = /app dans le conteneur, la ou vit le package
+# `app`) en tete de sys.path, quel que soit le repertoire courant d'appel.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.config import get_settings
 from app.database import Base
@@ -14,10 +27,11 @@ from app.database import Base
 # a chaque ajout de domaine - sinon `alembic revision --autogenerate` genere
 # une migration incomplete sans avertissement (bug reel trouve et corrige ici :
 # analyst, notifications, portfolio et watchlist manquaient).
+from app.domains.analysis_lab.db_models import TrainingJob  # noqa: F401
 from app.domains.analyst.models import AnalystConsensus  # noqa: F401
 from app.domains.assets.models import Asset  # noqa: F401
 from app.domains.backtests.models import BacktestResult, BacktestRun  # noqa: F401
-from app.domains.market_data.models import PriceBar, TechnicalIndicator  # noqa: F401
+from app.domains.market_data.models import Dividend, PriceBar, TechnicalIndicator  # noqa: F401
 from app.domains.news.models import NewsArticle, NewsKeywordMatch  # noqa: F401
 from app.domains.notifications.models import NotificationState  # noqa: F401
 from app.domains.portfolio.models import (  # noqa: F401

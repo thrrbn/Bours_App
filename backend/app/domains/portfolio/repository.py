@@ -1,5 +1,6 @@
 """Acces aux donnees du portefeuille virtuel - requetes SQL/ORM pures."""
 import uuid
+from datetime import date
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,10 +42,22 @@ async def get_position(db: AsyncSession, asset_id: uuid.UUID) -> PortfolioPositi
 async def upsert_position(db: AsyncSession, asset_id: uuid.UUID, quantity: float, avg_cost: float) -> None:
     existing = await get_position(db, asset_id)
     if existing is None:
-        db.add(PortfolioPosition(asset_id=asset_id, quantity=quantity, avg_cost=avg_cost))
+        # 31/07/2026 : dividends_credited_until initialise a AUJOURD'HUI - on
+        # ne credite jamais retroactivement un dividende detache avant
+        # l'ouverture de la position (voir models.py::PortfolioPosition).
+        db.add(
+            PortfolioPosition(
+                asset_id=asset_id, quantity=quantity, avg_cost=avg_cost, dividends_credited_until=date.today()
+            )
+        )
     else:
         existing.quantity = quantity
         existing.avg_cost = avg_cost
+    await db.commit()
+
+
+async def update_dividends_credited_until(db: AsyncSession, position: PortfolioPosition, until: date) -> None:
+    position.dividends_credited_until = until
     await db.commit()
 
 
@@ -65,6 +78,7 @@ async def add_transaction(
     quoted_price: float | None = None,
     commission: float = 0.0,
     slippage_amount: float = 0.0,
+    tob_amount: float = 0.0,
 ) -> PortfolioTransaction:
     transaction = PortfolioTransaction(
         asset_id=asset_id,
@@ -74,6 +88,7 @@ async def add_transaction(
         quoted_price=quoted_price,
         commission=commission,
         slippage_amount=slippage_amount,
+        tob_amount=tob_amount,
         total_amount=total_amount,
         realized_pnl=realized_pnl,
         price_date=price_date,
@@ -85,7 +100,12 @@ async def add_transaction(
 
 
 async def get_total_fees(db: AsyncSession) -> float:
-    result = await db.execute(select(func.coalesce(func.sum(PortfolioTransaction.commission), 0)))
+    """31/07/2026 : inclut desormais la TOB (taxe boursiere belge) en plus de
+    la commission - les deux sont des frais reellement preleves, contrairement
+    au slippage (cout de marche, deja compte a part dans le prix execute)."""
+    result = await db.execute(
+        select(func.coalesce(func.sum(PortfolioTransaction.commission + PortfolioTransaction.tob_amount), 0))
+    )
     return float(result.scalar_one())
 
 

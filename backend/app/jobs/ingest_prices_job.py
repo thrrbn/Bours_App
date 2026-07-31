@@ -3,7 +3,12 @@ import logging
 
 from app.database import AsyncSessionLocal
 from app.domains.assets.repository import list_all as list_all_assets
-from app.domains.market_data.service import compute_and_store_indicators, ingest_history, provider_for_market
+from app.domains.market_data.service import (
+    compute_and_store_indicators,
+    ingest_dividends,
+    ingest_history,
+    provider_for_market,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +22,7 @@ async def ingest_prices_job() -> dict:
             try:
                 await ingest_history(db, asset.id, asset.ticker, provider, source=source)
                 await compute_and_store_indicators(db, asset.id)
+                await ingest_dividends(db, asset.id, asset.ticker, provider)
             except Exception:
                 errors += 1
                 logger.exception("Echec ingestion prix pour %s", asset.ticker)

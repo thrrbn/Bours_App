@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.domains.assets import service as assets_service
 from app.jobs.compute_signals_job import compute_signals_job
+from app.jobs.credit_dividends_job import credit_dividends_job
 from app.jobs.ingest_news_job import ingest_news_job
 from app.jobs.ingest_prices_job import ingest_prices_job
 from app.jobs.refresh_analyst_ratings_job import refresh_analyst_ratings_job
@@ -102,10 +103,22 @@ async def refresh_all():
     news = await ingest_news_job()
     signals = await compute_signals_job()
     analyst = await refresh_analyst_ratings_job()
+    dividends = await credit_dividends_job()
 
     return {
         "prices": prices,
         "news": news,
         "signals": signals,
         "analyst": analyst,
+        "dividends": dividends,
     }
+
+
+@router.post("/credit-dividends")
+async def credit_dividends():
+    """
+    Declenche a la demande le credit des dividendes detaches depuis le
+    dernier passage (voir jobs/credit_dividends_job.py) - utile pour tester
+    sans attendre l'horaire cron (06h45).
+    """
+    return await credit_dividends_job()

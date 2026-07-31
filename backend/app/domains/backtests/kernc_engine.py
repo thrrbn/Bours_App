@@ -36,6 +36,23 @@ moteur interne, qui lui respecte le walk-forward (voir
 signals/training.py::chronological_split) ; sma_cross/buy_and_hold n'ont de
 toute facon aucun parametre entraine sur des donnees futures (moyennes
 mobiles a fenetre fixe, pas d'optimisation).
+
+Parametrage pour comparaison ("laboratoire de parametres", 31/07/2026, voir
+docs/STACK.md) : demande explicite de pouvoir tester differents reglages des
+outils existants (pas de nouvelle technique) et de comparer, SANS jamais
+modifier le moteur de signal reel affiche au quotidien. Deux leviers :
+- sma_cross : n1/n2 (fenetres des moyennes mobiles) overridables par run,
+  natif a backtesting.py (bt.run(n1=.., n2=..)).
+- signal_replay : ne rejoue plus directement le `final_signal` stocke, mais
+  RECLASSIFIE a la volee les 4 scores bruts DEJA stockes (technical/news/
+  risk/confidence, inchanges) via signals.models_ml.baseline_rules.classify_signal(),
+  avec les parametres par defaut (DEFAULT_DECISION_PARAMS, strictement
+  identiques aux constantes historiques codees en dur - donc resultat
+  identique par defaut) ou un DecisionParams alternatif fourni par le client
+  (POST /run-kernc). On ne recalcule PAS les scores bruts eux-memes (ça
+  demanderait de reconstruire les indicateurs techniques a une date passee,
+  hors scope de cette iteration - voir Dette technique dans docs/STACK.md) :
+  seule la ponderation/le seuillage de decision est testable pour l'instant.
 """
 import uuid
 from datetime import date
@@ -48,6 +65,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.market_data.models import PriceBar
 from app.domains.signals.models import Signal
+from app.domains.signals.models_ml.baseline_rules import DEFAULT_DECISION_PARAMS, DecisionParams, classify_signal
 
 STRATEGY_SIGNAL_REPLAY = "signal_replay"
 STRATEGY_SMA_CROSS = "sma_cross"
@@ -171,11 +189,21 @@ async def _load_price_dataframe(
     return df
 
 
-async def _load_signal_map(
+async def _load_signal_scores(
     db: AsyncSession, asset_id: uuid.UUID, horizon: str, period_start: date, period_end: date
 ) -> dict:
-    """{date: final_signal} - un signal par jour (le plus recent si plusieurs
-    calculs le meme jour, gere par l'ordre croissant + ecrasement dict)."""
+    """
+    {date: (technical_score, news_score, risk_score, confidence_score)} - les
+    4 scores BRUTS deja stockes (un par jour, le plus recent si plusieurs
+    calculs le meme jour, gere par l'ordre croissant + ecrasement dict).
+
+    31/07/2026 : on charge les scores bruts plutot que le `final_signal` deja
+    fige, pour permettre a SignalReplayStrategy de reclassifier a la volee
+    avec un DecisionParams alternatif (laboratoire de parametres) - voir
+    docstring de module. Les scores bruts eux-memes ne sont jamais recalcules
+    ici (walk-forward deja garanti par le moteur interne au moment de leur
+    calcul d'origine).
+    """
     stmt = (
         select(Signal)
         .where(
@@ -188,7 +216,15 @@ async def _load_signal_map(
     )
     result = await db.execute(stmt)
     signals = list(result.scalars().all())
-    return {s.computed_at.date(): s.final_signal for s in signals}
+    return {
+        s.computed_at.date(): (
+            float(s.technical_score),
+            float(s.news_score),
+            float(s.risk_score),
+            float(s.confidence_score),
+        )
+        for s in signals
+    }
 
 
 def _sma(values, n):
@@ -197,28 +233,41 @@ def _sma(values, n):
 
 class SignalReplayStrategy(Strategy):
     """
-    Rejoue nos propres signaux stockes comme des ordres reels : passe a 100%
-    long quand le dernier signal connu est haussier (achat_speculatif /
+    Rejoue nos propres signaux comme des ordres reels : passe a 100% long
+    quand le dernier signal connu est haussier (achat_speculatif /
     surveillance), solde la position quand il devient baissier (prudence /
     vente_defensive). Sur 'neutre' ou en l'absence de signal connu ce
     jour-la, ne fait rien (repli sur le dernier signal connu - un
     investisseur qui n'a pas de nouvelle information ne change pas de
     position sans raison).
 
-    signal_map est injecte via bt.run(signal_map=...) (backtesting.py
-    reconnait tout attribut de classe passe en kwarg a run() et l'affecte a
-    l'instance avant init()) plutot que par mutation de l'attribut de classe
-    - evite tout partage d'etat entre deux runs successifs.
+    31/07/2026 (laboratoire de parametres, voir docstring de module) : ne
+    consomme plus un `final_signal` deja fige, mais les 4 scores bruts
+    (signal_scores) et reclassifie a la volee via classify_signal() avec
+    decision_params - par defaut DEFAULT_DECISION_PARAMS, qui reproduit
+    exactement l'ancien comportement (final_signal deja stocke). Un
+    decision_params different permet de tester "et si les seuils/ponderations
+    de decision avaient ete autres ?" sur le MEME historique de scores, sans
+    recalculer les indicateurs techniques sous-jacents.
+
+    signal_scores et decision_params sont injectes via
+    bt.run(signal_scores=..., decision_params=...) (backtesting.py reconnait
+    tout attribut de classe passe en kwarg a run() et l'affecte a l'instance
+    avant init()) plutot que par mutation des attributs de classe - evite
+    tout partage d'etat entre deux runs successifs.
     """
 
-    signal_map: dict = {}
+    signal_scores: dict = {}
+    decision_params: DecisionParams = DEFAULT_DECISION_PARAMS
 
     def init(self):
         codes = []
         last = "neutre"
         for d in self.data.index:
             key = d.date() if hasattr(d, "date") else d
-            last = self.signal_map.get(key, last)
+            scores = self.signal_scores.get(key)
+            if scores is not None:
+                last = classify_signal(*scores, params=self.decision_params)
             codes.append(last)
         self._codes = codes
 
@@ -279,6 +328,9 @@ async def run_kernc_backtest(
     horizon: str = "medium",
     cash: float = 10_000.0,
     commission: float = 0.001,
+    sma_n1: int | None = None,
+    sma_n2: int | None = None,
+    decision_params: DecisionParams | None = None,
 ) -> dict | None:
     """
     Execute un backtest via backtesting.py pour un actif/strategie/periode
@@ -287,6 +339,14 @@ async def run_kernc_backtest(
     signal stocke pour signal_replay) - traite comme "rien a rapporter" plutot
     que comme une erreur, coherent avec run_backtest_for_asset() (service.py)
     qui exclut deja les signaux sans prix futurs disponibles.
+
+    sma_n1/sma_n2 (uniquement pour sma_cross) et decision_params (uniquement
+    pour signal_replay) : overrides optionnels du "laboratoire de parametres"
+    (31/07/2026, voir docstring de module) - si omis, comportement strictement
+    identique a avant (fenetres 10/20, DEFAULT_DECISION_PARAMS). Les valeurs
+    effectivement utilisees sont toujours consignees dans extra_metrics
+    (cle "_params_used") pour rester lisibles/comparables a posteriori entre
+    plusieurs runs testant des reglages differents.
     """
     strategy_cls = _STRATEGY_CLASSES.get(strategy_name)
     if strategy_cls is None:
@@ -297,11 +357,31 @@ async def run_kernc_backtest(
         return None
 
     run_kwargs = {}
+    params_used: dict = {}
     if strategy_name == STRATEGY_SIGNAL_REPLAY:
-        signal_map = await _load_signal_map(db, asset_id, horizon, period_start, period_end)
-        if not signal_map:
+        signal_scores = await _load_signal_scores(db, asset_id, horizon, period_start, period_end)
+        if not signal_scores:
             return None
-        run_kwargs["signal_map"] = signal_map
+        effective_params = decision_params or DEFAULT_DECISION_PARAMS
+        run_kwargs["signal_scores"] = signal_scores
+        run_kwargs["decision_params"] = effective_params
+        params_used = {
+            "technical_weight": effective_params.technical_weight,
+            "news_weight": effective_params.news_weight,
+            "buy_threshold": effective_params.buy_threshold,
+            "watch_threshold": effective_params.watch_threshold,
+            "caution_threshold": effective_params.caution_threshold,
+            "sell_threshold": effective_params.sell_threshold,
+            "buy_max_risk": effective_params.buy_max_risk,
+            "sell_min_risk": effective_params.sell_min_risk,
+            "min_confidence": effective_params.min_confidence,
+        }
+    elif strategy_name == STRATEGY_SMA_CROSS:
+        effective_n1 = sma_n1 or SmaCrossStrategy.n1
+        effective_n2 = sma_n2 or SmaCrossStrategy.n2
+        run_kwargs["n1"] = effective_n1
+        run_kwargs["n2"] = effective_n2
+        params_used = {"n1": effective_n1, "n2": effective_n2}
 
     # finalize_trades=True : une position encore ouverte a la fin de la
     # periode (frequent pour buy_and_hold, ou signal_replay si le dernier
@@ -315,6 +395,10 @@ async def run_kernc_backtest(
     num_trades = _num(stats, "# Trades") or 0
     win_rate_pct = _num(stats, "Win Rate [%]")
     max_dd_pct = _num(stats, "Max. Drawdown [%]")
+
+    extra_metrics = _stats_to_extra_metrics(stats)
+    if params_used:
+        extra_metrics["_params_used"] = params_used
 
     return {
         # Champs types existants (memes unites que le moteur interne : ratios
@@ -330,5 +414,5 @@ async def run_kernc_backtest(
         "profit_factor": _num(stats, "Profit Factor"),
         "avg_risk_reward": None,  # pas d'equivalent direct dans les stats de backtesting.py
         "strategy_name": strategy_name,
-        "extra_metrics": _stats_to_extra_metrics(stats),
+        "extra_metrics": extra_metrics,
     }

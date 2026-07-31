@@ -19,6 +19,8 @@ const maintenance = useMaintenanceStore();
         <RouterLink to="/top-buys" class="hover:underline">Top achats</RouterLink>
         <RouterLink to="/status" class="hover:underline">Suivi des actifs</RouterLink>
         <RouterLink to="/history" class="hover:underline">Historique des signaux</RouterLink>
+        <RouterLink to="/analysis-lab" class="hover:underline">Laboratoire d'analyse</RouterLink>
+        <RouterLink to="/briefing" class="hover:underline">Briefing</RouterLink>
         <button
           class="text-xs border rounded px-2 py-1 text-gray-600 hover:bg-gray-50 disabled:opacity-40"
           :disabled="maintenance.isRefreshing"

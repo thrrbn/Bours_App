@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.domains.backtests import kernc_engine, repository, service
-from app.domains.backtests.schemas import BacktestResultRead, BacktestRunCreate
+from app.domains.backtests.schemas import BacktestKerncRunCreate, BacktestResultRead, BacktestRunCreate
+from app.domains.signals.models_ml.baseline_rules import DecisionParams
 
 router = APIRouter(prefix="/api/v1/backtests", tags=["backtests"])
 
@@ -62,7 +63,7 @@ async def run_backtest(payload: BacktestRunCreate, db: AsyncSession = Depends(ge
 
 
 @router.post("/run-kernc")
-async def run_backtest_kernc(payload: BacktestRunCreate, db: AsyncSession = Depends(get_db)):
+async def run_backtest_kernc(payload: BacktestKerncRunCreate, db: AsyncSession = Depends(get_db)):
     """
     Meme scope (actifs + periode) que /run, mais via backtesting.py (31/07/2026,
     voir kernc_engine.py) : simulation reelle bar-par-bar (cash, ordres,
@@ -78,6 +79,14 @@ async def run_backtest_kernc(payload: BacktestRunCreate, db: AsyncSession = Depe
     Permet de comparer les deux moteurs cote a cote pour un meme actif/
     periode via GET /{run_id} (les deux runs restent distincts, un run_id
     different par POST).
+
+    Laboratoire de parametres (31/07/2026, voir schemas.py et kernc_engine.py) :
+    `sma_params` (n1/n2) et `decision_params` (seuils/ponderation de decision)
+    sont optionnels - omis, comportement identique a avant. Fournis, ils ne
+    testent QUE ce run-la (rien de sauvegarde, rien qui affecte le moteur de
+    signal reel) ; les valeurs effectivement utilisees sont toujours
+    consignees dans `extra_metrics._params_used` de chaque resultat pour
+    rester lisibles en comparant plusieurs run_id entre eux.
     """
     run = await repository.create_run(
         db,
@@ -85,6 +94,10 @@ async def run_backtest_kernc(payload: BacktestRunCreate, db: AsyncSession = Depe
         period_start=payload.period_start,
         period_end=payload.period_end,
         asset_scope={"asset_ids": [str(a) for a in payload.asset_ids]},
+    )
+
+    decision_params = (
+        DecisionParams(**payload.decision_params.model_dump()) if payload.decision_params is not None else None
     )
 
     for asset_id in payload.asset_ids:
@@ -98,6 +111,9 @@ async def run_backtest_kernc(payload: BacktestRunCreate, db: AsyncSession = Depe
                     payload.period_start,
                     payload.period_end,
                     horizon=horizon if horizon != "n/a" else "medium",
+                    sma_n1=payload.sma_params.n1 if payload.sma_params else None,
+                    sma_n2=payload.sma_params.n2 if payload.sma_params else None,
+                    decision_params=decision_params,
                 )
                 if result is None:
                     continue

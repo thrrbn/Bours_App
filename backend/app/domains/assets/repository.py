@@ -1,7 +1,7 @@
 """Acces aux donnees de l'actif - requetes SQL/ORM pures, aucune logique metier ici."""
 import uuid
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +11,15 @@ from app.domains.assets.schemas import AssetCreate
 
 async def get_by_id(db: AsyncSession, asset_id: uuid.UUID) -> Asset | None:
     return await db.get(Asset, asset_id)
+
+
+async def get_many_by_ids(db: AsyncSession, asset_ids: list[uuid.UUID]) -> list[Asset]:
+    """Batch lookup - utilise par news/service.py::get_keyword_matches pour
+    resoudre ticker/nom sans une requete par article."""
+    if not asset_ids:
+        return []
+    result = await db.execute(select(Asset).where(Asset.id.in_(asset_ids)))
+    return list(result.scalars().all())
 
 
 async def get_by_ticker(db: AsyncSession, ticker: str, market: str) -> Asset | None:
@@ -46,6 +55,28 @@ async def create(db: AsyncSession, payload: AssetCreate) -> Asset:
     await db.commit()
     await db.refresh(asset)
     return asset
+
+
+async def set_active(db: AsyncSession, asset: Asset, is_active: bool) -> Asset:
+    """Bascule is_active - voir service.py::delete_asset (desactivation,
+    l'historique n'est jamais efface) et create_asset (reactivation
+    automatique si on rajoute un ticker deja present mais retire)."""
+    asset.is_active = is_active
+    await db.commit()
+    await db.refresh(asset)
+    return asset
+
+
+async def get_by_ticker_any_market(db: AsyncSession, ticker: str) -> Asset | None:
+    """Recherche insensible a la casse, TOUS marches confondus - utilise par
+    service.py::lookup_ticker pour detecter si un ticker Yahoo Finance
+    (recherche live, pas encore forcement suivi) l'est deja, avant de
+    proposer un ajout. Contrairement a get_by_ticker(), aucun market requis
+    en entree (justement ce que la recherche live ne connait pas encore avec
+    certitude)."""
+    stmt = select(Asset).where(func.upper(Asset.ticker) == ticker.upper())
+    result = await db.execute(stmt)
+    return result.scalars().first()
 
 
 async def get_tracked_tickers(db: AsyncSession) -> set[str]:

@@ -8,7 +8,7 @@ singleton, cree a la premiere utilisation avec le cash de depart configure
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, UniqueConstraint, func, text
+from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,6 +34,16 @@ class PortfolioPosition(Base):
     )
     quantity: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False)
     avg_cost: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False)
+    # 31/07/2026 : derniere date de detachement de dividende deja creditee
+    # pour cette position (voir jobs/credit_dividends_job.py) - initialisee a
+    # la date du premier achat (pas de retro-credit de dividendes anterieurs a
+    # l'ouverture de la position, on ne detenait pas les actions a ce moment-la).
+    # Simplification assumee : un rachat ulterieur (renforcement de position)
+    # ne cree pas de "lot" distinct - le prochain dividende credite utilisera
+    # la quantite TOTALE detenue au moment du job, meme pour les actions
+    # ajoutees apres le dernier dividende. Ecart mineur pour un outil
+    # pedagogique, pas une comptabilite de courtier reelle.
+    dividends_credited_until: Mapped[date | None] = mapped_column(Date)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -49,7 +59,9 @@ class PortfolioTransaction(Base):
     asset_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("assets.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    side: Mapped[str] = mapped_column(String(10), nullable=False)  # 'buy' | 'sell'
+    # 31/07/2026 : 'dividend' ajoute a 'buy'/'sell' (voir jobs/credit_dividends_job.py) -
+    # une ligne 'dividend' represente un versement credite au cash, pas un ordre.
+    side: Mapped[str] = mapped_column(String(10), nullable=False)  # 'buy' | 'sell' | 'dividend'
     quantity: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False)
     # price = prix REELLEMENT execute (apres slippage) ; quoted_price = cours
     # brut avant slippage, conserve pour transparence (Etape 17).
@@ -57,6 +69,13 @@ class PortfolioTransaction(Base):
     quoted_price: Mapped[float | None] = mapped_column(Numeric(18, 6))
     commission: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default=text("0"))
     slippage_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default=text("0"))
+    # 31/07/2026 : taxe belge sur les operations de bourse (TOB/beurstaks),
+    # tracee separement de la commission/du slippage pour un detail de cout
+    # transparent (objectif pedagogique, voir docs/STACK.md) - 0 pour les
+    # actifs BINANCE (non applicable) et pour les lignes 'dividend' (le
+    # precompte mobilier sur dividende est deja deduit du montant credite, pas
+    # ajoute en frais separes - voir jobs/credit_dividends_job.py).
+    tob_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default=text("0"))
     total_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
     realized_pnl: Mapped[float | None] = mapped_column(Numeric(18, 2))
     price_date: Mapped[date] = mapped_column(nullable=False)  # date du dernier cours utilise, pas la date d'execution

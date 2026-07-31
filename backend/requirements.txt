@@ -17,6 +17,23 @@ python-multipart>=0.0.9
 feedparser>=6.0
 yfinance>=0.2.40
 backtesting>=0.3.3
+xgboost>=2.0
+statsmodels>=0.14
+prophet>=1.1
+# torch (Phase 3, LSTM asynchrone - voir analysis_lab/deep_models.py) est
+# volontairement ABSENT d'ici : installe separement dans le Dockerfile depuis
+# l'index CPU-only de PyTorch, pour eviter que ce simple `pip install -r
+# requirements.txt` ne retelecharge la variante GPU/CUDA par-dessus (bien
+# plus lourde). Hors Docker (dev local), installer manuellement :
+# pip install torch --index-url https://download.pytorch.org/whl/cpu
+# 31/07/2026 : traduction FR des extraits d'articles Yahoo Finance US/anglais
+# (voir news/nlp/translation.py) - encapsule un appel HTTP non officiel vers
+# translate.google.com (pas de cle API, meme categorie de fragilite que
+# yfinance/RSS deja documentee dans docs/17-limites-legales-techniques.md).
+# NON TESTE lors de l'ecriture (sandbox de dev sans acces reseau vers
+# translate.google.com, meme limite que torch ci-dessous) - a verifier au
+# premier appel reel apres rebuild.
+deep-translator>=1.11
 aiosmtplib>=3.0
 python-dotenv>=1.0
 pytest>=8.3

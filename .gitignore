@@ -6,3 +6,6 @@ node_modules/
 dist/
 .pytest_cache/
 *.egg-info/
+
+# Artefacts Vite generes au demarrage (rebuild config a chaud)
+vite.config.js.timestamp-*.mjs

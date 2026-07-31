@@ -5,6 +5,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.jobs.compute_signals_job import compute_signals_job
+from app.jobs.credit_dividends_job import credit_dividends_job
+from app.jobs.daily_briefing_job import daily_briefing_job
 from app.jobs.ingest_news_job import ingest_news_job
 from app.jobs.ingest_prices_job import ingest_prices_job
 from app.jobs.notify_changes_job import notify_changes_job
@@ -29,8 +31,22 @@ def register_jobs() -> None:
     scheduler.add_job(
         refresh_analyst_ratings_job, CronTrigger(hour=6, minute=30), id="refresh_analyst_ratings", replace_existing=True
     )
+    # 31/07/2026 : apres ingest_prices (qui ingere aussi les dividendes, voir
+    # market_data/service.py:ingest_dividends), pour etre sur que les
+    # dividendes du jour sont deja en base avant de tenter de les crediter.
+    scheduler.add_job(
+        credit_dividends_job, CronTrigger(hour=6, minute=45), id="credit_dividends", replace_existing=True
+    )
+    # 31/07/2026 : apres compute_signals (7h) ET refresh_analyst_ratings
+    # (6h30) - le briefing lit les signaux/consensus du jour, il ne les
+    # recalcule jamais lui-meme (voir notifications/briefing_service.py).
+    # Reste silencieux tant que MAIL_ENABLED=false (defaut), voir mailer.py.
+    scheduler.add_job(
+        daily_briefing_job, CronTrigger(hour=7, minute=30), id="daily_briefing", replace_existing=True
+    )
     logger.info(
-        "Jobs planifies enregistres: ingest_prices, ingest_news, compute_signals, notify_changes, refresh_analyst_ratings"
+        "Jobs planifies enregistres: ingest_prices, ingest_news, compute_signals, notify_changes, "
+        "refresh_analyst_ratings, credit_dividends, daily_briefing"
     )
 
 

@@ -2,14 +2,15 @@
 import math
 import uuid
 from datetime import date
+from decimal import Decimal
 
 import pandas as pd
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.market_data.models import PriceBar, TechnicalIndicator
-from app.domains.market_data.providers.base import PriceBarDTO
+from app.domains.market_data.models import Dividend, PriceBar, TechnicalIndicator
+from app.domains.market_data.providers.base import DividendDTO, PriceBarDTO
 
 
 def _is_valid_bar(bar: PriceBarDTO) -> bool:
@@ -69,9 +70,39 @@ async def get_price_history(db: AsyncSession, asset_id: uuid.UUID, limit: int = 
 
 
 async def get_latest_bar(db: AsyncSession, asset_id: uuid.UUID) -> PriceBar | None:
-    """Dernier cours connu - utilise par le portefeuille virtuel (Etape 12) pour
-    valoriser les positions et executer les achats/ventes simules."""
-    stmt = select(PriceBar).where(PriceBar.asset_id == asset_id).order_by(PriceBar.trade_date.desc()).limit(1)
+    """
+    Dernier cours VALIDE connu - utilise par le portefeuille virtuel (Etape 12)
+    pour valoriser les positions et executer les achats/ventes simules, et par
+    analyst/service.py et market_data/router.py.
+
+    Bug reel trouve le 31/07/2026 (suite du bug NaN du 30/07/2026, voir
+    docs/STACK.md) : filtrer le NaN a l'ingestion (yahoo_finance.py,
+    _is_valid_bar) empeche un NOUVEAU NaN d'entrer en base, mais une ligne DEJA
+    corrompue AVANT ce correctif restait la plus recente par date - un
+    rafraichissement ulterieur ne la remplace que si Yahoo Finance renvoie
+    entre-temps une valeur non-NaN pour CETTE MEME date (typiquement une fois
+    la bougie du jour cloturee) ; en attendant, `_get_latest_price` bloquait
+    indefiniment tout achat/vente sur cet actif, meme apres un rafraichissement
+    reussi qui avait pourtant bien ingere une barre plus ancienne valide.
+    Corrige a la source : on ne considere "le dernier cours" que parmi les
+    lignes valides (ni NaN, ni <= 0), une ligne corrompue est simplement
+    ignoree au profit de la derniere ligne valide precedente - coherent avec
+    l'esprit du garde-fou existant (portfolio/service.py:_get_latest_price)
+    mais applique une bonne fois pour toutes ici, pour tous les appelants.
+
+    Attention Postgres : contrairement a IEEE754, `NaN = NaN` est VRAI pour le
+    type NUMERIC en Postgres (NaN trie plus grand que toute valeur), donc le
+    piege classique `close != close` ne filtre PAS le NaN ici - il faut
+    comparer explicitement a la valeur `Decimal('NaN')`.
+    """
+    stmt = (
+        select(PriceBar)
+        .where(PriceBar.asset_id == asset_id)
+        .where(PriceBar.close != Decimal("NaN"))
+        .where(PriceBar.close > 0)
+        .order_by(PriceBar.trade_date.desc())
+        .limit(1)
+    )
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
@@ -83,6 +114,36 @@ async def get_latest_price_dates(db: AsyncSession) -> dict[uuid.UUID, date]:
     stmt = select(PriceBar.asset_id, func.max(PriceBar.trade_date)).group_by(PriceBar.asset_id)
     result = await db.execute(stmt)
     return {asset_id: trade_date for asset_id, trade_date in result.all()}
+
+
+async def upsert_dividends(db: AsyncSession, asset_id: uuid.UUID, dividends: list[DividendDTO]) -> int:
+    """31/07/2026 - voir models.py::Dividend. Idempotent (ON CONFLICT), rejouable
+    sans risque a chaque rafraichissement de prix."""
+    if not dividends:
+        return 0
+    values = [
+        {"asset_id": asset_id, "ex_date": d.ex_date, "amount_per_share": d.amount_per_share} for d in dividends
+    ]
+    stmt = insert(Dividend).values(values)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["asset_id", "ex_date"], set_={"amount_per_share": stmt.excluded.amount_per_share}
+    )
+    await db.execute(stmt)
+    await db.commit()
+    return len(values)
+
+
+async def get_dividends_after(db: AsyncSession, asset_id: uuid.UUID, since: date) -> list[Dividend]:
+    """Dividendes dont la date de detachement est STRICTEMENT posterieure a
+    `since` - utilise par jobs/credit_dividends_job.py pour ne crediter chaque
+    dividende qu'une seule fois (voir portfolio/models.py::dividends_credited_until)."""
+    stmt = (
+        select(Dividend)
+        .where(Dividend.asset_id == asset_id, Dividend.ex_date > since)
+        .order_by(Dividend.ex_date.asc())
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
 
 
 async def get_latest_indicators(db: AsyncSession, asset_id: uuid.UUID) -> TechnicalIndicator | None:

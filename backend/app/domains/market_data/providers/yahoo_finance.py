@@ -14,7 +14,7 @@ from datetime import date
 import yfinance as yf
 
 from app.core.exceptions import DataProviderError
-from app.domains.market_data.providers.base import MarketDataProvider, PriceBarDTO
+from app.domains.market_data.providers.base import DividendDTO, MarketDataProvider, PriceBarDTO
 
 
 class YahooFinanceProvider(MarketDataProvider):
@@ -70,3 +70,26 @@ class YahooFinanceProvider(MarketDataProvider):
                 )
             )
         return bars
+
+    async def fetch_dividends(self, ticker: str) -> list[DividendDTO]:
+        """
+        31/07/2026 : historique complet des dividendes verses (yfinance expose
+        `Ticker.dividends`, une Series pandas indexee par date de detachement,
+        valeur = montant BRUT par action). Utilise pour crediter le
+        portefeuille virtuel (voir jobs/credit_dividends_job.py) - sans clé
+        d'API, meme mecanisme non contractuel que fetch_history (voir
+        docstring de module).
+        """
+        try:
+            series = yf.Ticker(ticker).dividends
+        except Exception as exc:
+            raise DataProviderError(f"Echec de recuperation des dividendes Yahoo Finance pour {ticker}: {exc}") from exc
+
+        if series is None or series.empty:
+            return []
+
+        return [
+            DividendDTO(ex_date=ex_date.date(), amount_per_share=float(amount))
+            for ex_date, amount in series.items()
+            if not math.isnan(amount) and amount > 0
+        ]

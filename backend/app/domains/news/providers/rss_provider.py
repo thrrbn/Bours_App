@@ -37,9 +37,9 @@ class RssNewsProvider(NewsProvider):
 
     async def fetch_articles(self, ticker: str, company_name: str) -> list[NewsArticleDTO]:
         """
-        Interroge les deux flux independamment : si l'un des deux echoue
-        (bloque, en panne...), l'autre continue de fournir des resultats -
-        principe de resilience par source (docs/08-pipeline-ingestion.md).
+        Interroge les TROIS flux independamment : si l'un echoue (bloque, en
+        panne...), les autres continuent de fournir des resultats - principe
+        de resilience par source (docs/08-pipeline-ingestion.md).
         """
         articles: list[NewsArticleDTO] = []
 
@@ -57,6 +57,25 @@ class RssNewsProvider(NewsProvider):
             )
         except DataProviderError as exc:
             logger.warning("Flux google_news_rss indisponible pour %s: %s", ticker, exc)
+
+        # 31/07/2026 : Yahoo Finance FR (fr.finance.yahoo.com) publie des
+        # articles absents des deux flux ci-dessus (constat utilisateur).
+        # Plutot que de deviner une URL RSS directe sur ce sous-domaine (non
+        # verifiee, potentiellement inexistante - meme prudence que le reste
+        # de ce fichier vis-a-vis des endpoints non contractuels, voir
+        # docs/17), on reutilise le mecanisme Google News RSS DEJA
+        # fonctionnel ci-dessus, avec l'operateur de recherche standard
+        # `site:` pour ne remonter que des pages de ce sous-domaine - plus
+        # fiable qu'un essai direct non teste.
+        yahoo_fr_query = f"site:fr.finance.yahoo.com+{company_name}".replace(" ", "+")
+        try:
+            articles.extend(
+                await self._fetch_feed(
+                    GOOGLE_NEWS_RSS_TEMPLATE.format(query=yahoo_fr_query), source="google_news_yahoo_fr"
+                )
+            )
+        except DataProviderError as exc:
+            logger.warning("Flux google_news_yahoo_fr indisponible pour %s: %s", ticker, exc)
 
         return articles
 

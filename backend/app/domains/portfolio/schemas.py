@@ -39,6 +39,7 @@ class TransactionRead(BaseModel):
     quoted_price: float | None
     commission: float
     slippage_amount: float
+    tob_amount: float = 0.0
     total_amount: float
     realized_pnl: float | None
     price_date: date

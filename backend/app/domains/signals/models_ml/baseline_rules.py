@@ -145,17 +145,47 @@ def compute_confidence_score(features: SignalFeatures) -> ScoreComponent:
     )
 
 
-def _final_signal(technical: float, news: float, risk: float, confidence: float) -> str:
-    if confidence < 30:
+@dataclass
+class DecisionParams:
+    """
+    Parametres de la fonction de decision qui transforme les 4 scores bruts
+    (technical/news/risk/confidence, deja calcules) en final_signal. Isoles
+    ici (31/07/2026) pour permettre au moteur de backtest (voir
+    backtests/kernc_engine.py) de tester des variantes de seuils/ponderation
+    SANS jamais toucher au moteur reel : `compute()` ci-dessous utilise
+    toujours DEFAULT_DECISION_PARAMS, qui reproduit exactement l'ancien
+    comportement code en dur - le signal officiel affiche au quotidien
+    (dashboard, notifications) n'est jamais affecte par un test de parametres
+    en backtest (decision produit explicite, voir docs/STACK.md).
+    """
+
+    technical_weight: float = 0.5
+    news_weight: float = 0.5
+    buy_threshold: float = 70.0
+    watch_threshold: float = 55.0
+    caution_threshold: float = 45.0
+    sell_threshold: float = 30.0
+    buy_max_risk: float = 50.0
+    sell_min_risk: float = 60.0
+    min_confidence: float = 30.0
+
+
+DEFAULT_DECISION_PARAMS = DecisionParams()
+
+
+def classify_signal(
+    technical: float, news: float, risk: float, confidence: float, params: DecisionParams = DEFAULT_DECISION_PARAMS
+) -> str:
+    if confidence < params.min_confidence:
         return "surveillance"
-    combined = 0.5 * technical + 0.5 * news
-    if combined >= 70 and risk < 50:
+    combined = params.technical_weight * technical + params.news_weight * news
+    if combined >= params.buy_threshold and risk < params.buy_max_risk:
         return "achat_speculatif"
-    if combined >= 55:
+    if combined >= params.watch_threshold:
         return "surveillance"
-    if combined <= 30 and risk >= 60:
+    if combined <= params.sell_threshold and risk >= params.sell_min_risk:
         return "vente_defensive"
-    if combined <= 45:
+    if combined <= params.caution_threshold:
         return "prudence"
     return "neutre"
 
@@ -173,7 +203,7 @@ def compute(features: SignalFeatures) -> SignalResult:
     technical.contribution_pct = round(100 * deviations["technical"] / total_deviation, 1)
     news.contribution_pct = round(100 * deviations["news"] / total_deviation, 1)
 
-    final_signal = _final_signal(technical.value, news.value, risk.value, confidence.value)
+    final_signal = classify_signal(technical.value, news.value, risk.value, confidence.value)
 
     return SignalResult(
         engine_version=ENGINE_VERSION,

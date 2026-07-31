@@ -64,13 +64,26 @@ async def _get_latest_price(db: AsyncSession, asset_id: uuid.UUID) -> tuple[floa
     return close, bar.trade_date
 
 
+def _tob_amount(asset, execution_price: float, quantity: float, settings) -> float:
+    """
+    Taxe belge sur les operations de bourse (TOB/beurstaks, 31/07/2026) -
+    voir config.py::portfolio_tob_pct pour les limites de cette estimation.
+    Non applicable a la crypto (Binance) : la TOB cible les titres cotes sur
+    un marche reglemente, pas les cryptoactifs.
+    """
+    if asset.market == "BINANCE":
+        return 0.0
+    return round(execution_price * quantity * settings.portfolio_tob_pct, 2)
+
+
 async def buy(db: AsyncSession, asset_id: uuid.UUID, quantity: float) -> TransactionRead:
     """
-    Frais et slippage (Etape 17) : sans eux, une simulation surestime la
-    performance de 5-15% (un backtest sans frais donne une fausse confiance).
-    A l'achat, le slippage joue TOUJOURS contre nous (on paie plus cher que
-    le cours cote), et la commission s'ajoute au cout - le tout entre dans le
-    cout de revient (avg_cost), comme une vraie comptabilite de position.
+    Frais, slippage et TOB (Etape 17, complete le 31/07/2026) : sans eux, une
+    simulation surestime la performance de 5-15% (un backtest sans frais
+    donne une fausse confiance). A l'achat, le slippage joue TOUJOURS contre
+    nous (on paie plus cher que le cours cote), et la commission + la TOB
+    s'ajoutent au cout - le tout entre dans le cout de revient (avg_cost),
+    comme une vraie comptabilite de position.
     """
     asset = await assets_repository.get_by_id(db, asset_id)
     if asset is None:
@@ -82,14 +95,15 @@ async def buy(db: AsyncSession, asset_id: uuid.UUID, quantity: float) -> Transac
     execution_price = quoted_price * (1 + settings.portfolio_slippage_pct)
     slippage_amount = round((execution_price - quoted_price) * quantity, 2)
     commission = round(settings.portfolio_commission_per_trade, 2)
-    total_cost = round(execution_price * quantity + commission, 2)
+    tob_amount = _tob_amount(asset, execution_price, quantity, settings)
+    total_cost = round(execution_price * quantity + commission + tob_amount, 2)
 
     if total_cost > float(state.cash_balance):
         raise InsufficientFundsError(total_cost, float(state.cash_balance))
 
     # Cout de revient par action, frais inclus - c'est ce qui sert de reference
     # pour le calcul du gain/perte non realise et realise plus tard.
-    effective_cost_per_share = execution_price + (commission / quantity)
+    effective_cost_per_share = execution_price + ((commission + tob_amount) / quantity)
 
     existing = await repository.get_position(db, asset_id)
     if existing is None:
@@ -116,13 +130,14 @@ async def buy(db: AsyncSession, asset_id: uuid.UUID, quantity: float) -> Transac
         quoted_price=round(quoted_price, 6),
         commission=commission,
         slippage_amount=slippage_amount,
+        tob_amount=tob_amount,
     )
     return TransactionRead.model_validate(transaction)
 
 
 async def sell(db: AsyncSession, asset_id: uuid.UUID, quantity: float) -> TransactionRead:
     """A la vente, le slippage joue aussi contre nous (on recoit moins que le
-    cours cote), et la commission reduit les produits de la vente."""
+    cours cote), et la commission + la TOB reduisent les produits de la vente."""
     asset = await assets_repository.get_by_id(db, asset_id)
     if asset is None:
         raise AssetNotFoundError(str(asset_id))
@@ -138,8 +153,9 @@ async def sell(db: AsyncSession, asset_id: uuid.UUID, quantity: float) -> Transa
     execution_price = quoted_price * (1 - settings.portfolio_slippage_pct)
     slippage_amount = round((quoted_price - execution_price) * quantity, 2)
     commission = round(settings.portfolio_commission_per_trade, 2)
-    proceeds = round(execution_price * quantity - commission, 2)
-    realized_pnl = round((execution_price - float(position.avg_cost)) * quantity - commission, 2)
+    tob_amount = _tob_amount(asset, execution_price, quantity, settings)
+    proceeds = round(execution_price * quantity - commission - tob_amount, 2)
+    realized_pnl = round((execution_price - float(position.avg_cost)) * quantity - commission - tob_amount, 2)
 
     remaining_quantity = held - quantity
     if remaining_quantity <= 0:
@@ -161,6 +177,7 @@ async def sell(db: AsyncSession, asset_id: uuid.UUID, quantity: float) -> Transa
         quoted_price=round(quoted_price, 6),
         commission=commission,
         slippage_amount=slippage_amount,
+        tob_amount=tob_amount,
     )
     return TransactionRead.model_validate(transaction)
 
