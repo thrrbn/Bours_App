@@ -54,6 +54,9 @@ modifier le moteur de signal reel affiche au quotidien. Deux leviers :
   hors scope de cette iteration - voir Dette technique dans docs/STACK.md) :
   seule la ponderation/le seuillage de decision est testable pour l'instant.
 """
+import logging
+import os
+import tempfile
 import uuid
 from datetime import date
 
@@ -62,6 +65,8 @@ from backtesting import Backtest, Strategy
 from backtesting.lib import crossover
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from app.domains.market_data.models import PriceBar
 from app.domains.signals.models import Signal
@@ -319,6 +324,46 @@ _STRATEGY_CLASSES = {
 }
 
 
+def _render_plot_html(bt: Backtest) -> str | None:
+    """
+    01/08/2026 : graphique interactif natif de backtesting.py (bt.plot() -
+    chandeliers + courbe de capital + drawdown + marqueurs de trades, base
+    sur Bokeh) - reutilise tel quel plutot que de reimplementer un graphique
+    maison (Chart.js/etc.), demande explicite de l'utilisateur apres avoir
+    vu l'exemple du README de backtesting.py.
+
+    bt.plot() ecrit un fichier HTML sur disque (pas de mode "retourne une
+    chaine" natif) - on passe donc par un fichier temporaire, qu'on relit et
+    supprime immediatement. `open_browser=False` est indispensable en
+    conteneur (pas de navigateur/affichage disponible) - sans ce parametre,
+    backtesting.py tente d'ouvrir un navigateur systeme et echoue ou bloque.
+
+    Le HTML genere charge Bokeh depuis son CDN officiel (mode par defaut de
+    bokeh.io.output_file, verifie explicitement) plutot que de tout
+    embarquer en local - reste leger (quelques dizaines de Ko au lieu de
+    plus d'1 Mo) au prix d'une dependance reseau au moment de l'affichage
+    cote navigateur (meme categorie que les polices/CDN deja utilisees
+    ailleurs dans ce projet).
+
+    Retourne None (jamais d'exception) si la generation echoue - un
+    graphique manquant ne doit jamais faire echouer tout le backtest, les
+    statistiques chiffrees restent le résultat principal.
+    """
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+        bt.plot(filename=tmp_path, open_browser=False)
+        with open(tmp_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception:
+        logger.warning("Echec de generation du graphique bt.plot()", exc_info=True)
+        return None
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
 async def run_kernc_backtest(
     db: AsyncSession,
     asset_id: uuid.UUID,
@@ -400,6 +445,8 @@ async def run_kernc_backtest(
     if params_used:
         extra_metrics["_params_used"] = params_used
 
+    plot_html = _render_plot_html(bt)
+
     return {
         # Champs types existants (memes unites que le moteur interne : ratios
         # 0-1, pas de %, drawdown en valeur absolue positive) pour permettre
@@ -415,4 +462,5 @@ async def run_kernc_backtest(
         "avg_risk_reward": None,  # pas d'equivalent direct dans les stats de backtesting.py
         "strategy_name": strategy_name,
         "extra_metrics": extra_metrics,
+        "plot_html": plot_html,
     }

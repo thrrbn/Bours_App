@@ -133,6 +133,7 @@ async def run_backtest_kernc(payload: BacktestKerncRunCreate, db: AsyncSession =
                     avg_risk_reward=result["avg_risk_reward"],
                     strategy_name=result["strategy_name"],
                     extra_metrics=result["extra_metrics"],
+                    plot_html=result["plot_html"],
                 )
 
     return {"backtest_run_id": run.id, "status": "completed"}

@@ -21,7 +21,7 @@ const props = defineProps({
       <span class="text-xs text-gray-500">Confiance : {{ signal.scores.confidence.toFixed(0) }}/100</span>
     </div>
 
-    <div class="grid grid-cols-3 gap-3 mb-4 text-center text-sm">
+    <div class="grid grid-cols-3 gap-2 sm:gap-3 mb-4 text-center text-sm">
       <div>
         <div class="text-gray-500 text-xs">Technique</div>
         <div class="font-semibold">{{ signal.scores.technical.toFixed(0) }}</div>

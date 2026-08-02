@@ -83,3 +83,7 @@ class BacktestResultRead(BaseModel):
     # ci-dessus (Sortino, Exposure Time, SQN, Best/Worst Trade...).
     strategy_name: str | None = None
     extra_metrics: dict | None = None
+    # 01/08/2026 : HTML standalone du graphique interactif bt.plot() (voir
+    # kernc_engine.py::_render_plot_html) - None pour "internal_rules" et
+    # pour tout run anterieur a cet ajout.
+    plot_html: str | None = None

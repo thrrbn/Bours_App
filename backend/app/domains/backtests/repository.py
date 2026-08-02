@@ -36,6 +36,7 @@ async def save_result(
     avg_risk_reward: float | None = None,
     strategy_name: str = "internal_rules",
     extra_metrics: dict | None = None,
+    plot_html: str | None = None,
 ) -> BacktestResult:
     """
     Champs explicites plutot qu'un objet BacktestMetrics unique (31/07/2026) :
@@ -61,6 +62,7 @@ async def save_result(
         avg_risk_reward=avg_risk_reward,
         strategy_name=strategy_name,
         extra_metrics=extra_metrics,
+        plot_html=plot_html,
     )
     db.add(result)
     await db.commit()

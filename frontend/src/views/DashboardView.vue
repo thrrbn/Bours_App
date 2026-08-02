@@ -98,7 +98,7 @@ function fmtPct(value) {
         Rendement reel constate (pas une prediction) - point de comparaison pour l'horizon ~12 mois des analystes
         externes, plus long que nos horizons de prediction (5/20/60 jours).
       </p>
-      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-sm">
         <div>
           <div class="text-gray-500 text-xs mb-1">1 mois</div>
           <div class="font-semibold" :class="pnlClass(marketDataStore.trendsByAssetId[assetId].return_1m)">
@@ -135,7 +135,7 @@ function fmtPct(value) {
       </div>
 
       <div v-if="analystStore.comparison">
-        <div class="grid grid-cols-3 gap-2 mb-3 text-center text-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3 text-center text-sm">
           <div>
             <div class="text-gray-500 text-xs mb-1">Moteur de regles</div>
             <span class="px-2 py-1 rounded-full text-xs font-medium border" :class="directionClass(analystStore.comparison.internal_rules_direction)">

@@ -8,11 +8,13 @@ import TopBuysView from "../views/TopBuysView.vue";
 import AssetStatusView from "../views/AssetStatusView.vue";
 import AnalysisLabView from "../views/AnalysisLabView.vue";
 import BriefingView from "../views/BriefingView.vue";
+import MarketOverviewView from "../views/MarketOverviewView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: "/", name: "search", component: AssetSearchView },
+    { path: "/", name: "market", component: MarketOverviewView },
+    { path: "/recherche", name: "search", component: AssetSearchView },
     { path: "/assets/:assetId", name: "dashboard", component: DashboardView, props: true },
     { path: "/history", name: "history", component: SignalHistoryView },
     { path: "/watchlist", name: "watchlist", component: WatchlistView },

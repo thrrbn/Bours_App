@@ -388,7 +388,7 @@ function goToAsset(assetId) {
             une (oscillateurs bornes) - ce n'est jamais un signal d'achat/vente, juste un repere pour comprendre le
             chiffre.
           </p>
-          <div class="border rounded bg-white overflow-hidden">
+          <div class="border rounded bg-white overflow-x-auto">
             <table class="w-full text-sm">
               <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
                 <tr>

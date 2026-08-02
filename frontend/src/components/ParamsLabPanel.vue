@@ -9,6 +9,14 @@
 // nouveau run de backtest independant, consultable via son propre run_id).
 import { computed, reactive, ref } from "vue";
 import apiClient from "../api/client";
+import {
+  METRIC_GLOSSARY,
+  STRATEGY_GLOSSARY,
+  GUIDE_SECTIONS,
+  interpretMetric,
+  toneClasses,
+  buildSynthesis,
+} from "../constants/backtestingGlossary";
 
 const props = defineProps({
   assetId: { type: String, required: true },
@@ -48,6 +56,29 @@ const isRunning = ref(false);
 const error = ref(null);
 const results = ref(null);
 
+// Graphique interactif (bt.plot(), voir kernc_engine.py::_render_plot_html) :
+// un seul affiche a la fois (chaque graphique pese plusieurs dizaines de Ko
+// et embarque du JS Bokeh - eviter d'en charger plusieurs simultanement).
+const activePlotKey = ref(null);
+
+function resultKey(row) {
+  return `${row.strategy_name}-${row.horizon}`;
+}
+
+function togglePlot(row) {
+  const key = resultKey(row);
+  activePlotKey.value = activePlotKey.value === key ? null : key;
+}
+
+// Explications pedagogiques (01/08/2026, voir constants/backtestingGlossary.js) :
+// bouton "?" cliquable par metrique (au lieu d'un simple survol - accessible
+// aussi au toucher sur mobile/tablette) + guide replie en haut du panneau.
+const openInfoKey = ref(null);
+function toggleInfo(key) {
+  openInfoKey.value = openInfoKey.value === key ? null : key;
+}
+const showGuide = ref(false);
+
 const groupedResults = computed(() => {
   if (!results.value) return [];
   return [...results.value].sort((a, b) => {
@@ -55,6 +86,8 @@ const groupedResults = computed(() => {
     return (a.horizon || "").localeCompare(b.horizon || "");
   });
 });
+
+const activePlotResult = computed(() => groupedResults.value.find((row) => resultKey(row) === activePlotKey.value));
 
 function strategyLabel(name) {
   if (name === "signal_replay") return "Nos signaux (signal_replay)";
@@ -75,10 +108,100 @@ function extraMetric(row, key) {
   return row.extra_metrics && row.extra_metrics[key] !== undefined ? row.extra_metrics[key] : null;
 }
 
+// Toutes les statistiques renvoyees par backtesting.py (voir
+// backend/.../kernc_engine.py::_EXTRA_STATS_KEYS et les champs types du
+// resultat) - regroupees par theme, une ligne = une metrique avec son
+// explication pedagogique (constants/backtestingGlossary.js). "field" lit un
+// champ type du resultat (deja converti/normalise cote backend), "extra" lit
+// la cle brute de backtesting.py dans extra_metrics. `scale100` : le champ
+// backend est stocke en ratio 0-1 (comme le reste de l'app), affiche en %
+// ici pour coller a la convention native de backtesting.py.
+const METRIC_GROUPS = [
+  {
+    title: "Rendement",
+    rows: [
+      { key: "return_pct", label: "Rendement total", source: "extra", raw: "Return [%]", fmt: "pct" },
+      { key: "buy_hold_return_pct", label: "Rendement buy & hold", source: "extra", raw: "Buy & Hold Return [%]", fmt: "pct" },
+      { key: "return_ann_pct", label: "Rendement annualise", source: "extra", raw: "Return (Ann.) [%]", fmt: "pct" },
+      { key: "cagr_pct", label: "CAGR", source: "extra", raw: "CAGR [%]", fmt: "pct" },
+      { key: "equity_final", label: "Capital final", source: "extra", raw: "Equity Final [$]", fmt: "money" },
+      { key: "equity_peak", label: "Capital maximum", source: "extra", raw: "Equity Peak [$]", fmt: "money" },
+      { key: "commissions", label: "Frais payes", source: "extra", raw: "Commissions [$]", fmt: "money" },
+    ],
+  },
+  {
+    title: "Risque",
+    rows: [
+      { key: "volatility_ann_pct", label: "Volatilite annualisee", source: "extra", raw: "Volatility (Ann.) [%]", fmt: "pct" },
+      { key: "exposure_time", label: "Temps d'exposition", source: "extra", raw: "Exposure Time [%]", fmt: "pct" },
+      { key: "max_drawdown_pct", label: "Perte maximale (drawdown)", source: "field", raw: "max_drawdown", fmt: "pct", scale100: true, interpret: true },
+      { key: "avg_drawdown_pct", label: "Chute moyenne", source: "extra", raw: "Avg. Drawdown [%]", fmt: "pct" },
+      { key: "max_drawdown_duration", label: "Duree de la pire chute", source: "extra", raw: "Max. Drawdown Duration", fmt: "days" },
+      { key: "avg_drawdown_duration", label: "Duree de recuperation moyenne", source: "extra", raw: "Avg. Drawdown Duration", fmt: "days" },
+    ],
+  },
+  {
+    title: "Ratios ajustes au risque",
+    rows: [
+      { key: "sharpe_ratio", label: "Ratio de Sharpe", source: "field", raw: "sharpe_ratio", fmt: "num", interpret: true },
+      { key: "sortino_ratio", label: "Ratio de Sortino", source: "extra", raw: "Sortino Ratio", fmt: "num", interpret: true },
+      { key: "calmar_ratio", label: "Ratio de Calmar", source: "field", raw: "calmar_ratio", fmt: "num", interpret: true },
+      { key: "alpha_pct", label: "Alpha", source: "extra", raw: "Alpha [%]", fmt: "pct" },
+      { key: "beta", label: "Beta", source: "extra", raw: "Beta", fmt: "num" },
+    ],
+  },
+  {
+    title: "Transactions",
+    rows: [
+      { key: "num_trades", label: "Nombre de transactions", source: "field", raw: "signal_count", fmt: "int" },
+      { key: "win_rate_pct", label: "Taux de reussite", source: "field", raw: "win_rate", fmt: "pct", scale100: true, interpret: true },
+      { key: "best_trade_pct", label: "Meilleure transaction", source: "extra", raw: "Best Trade [%]", fmt: "pct" },
+      { key: "worst_trade_pct", label: "Pire transaction", source: "extra", raw: "Worst Trade [%]", fmt: "pct" },
+      { key: "avg_trade_pct", label: "Gain moyen par transaction", source: "extra", raw: "Avg. Trade [%]", fmt: "pct" },
+      { key: "max_trade_duration", label: "Duree max d'une transaction", source: "extra", raw: "Max. Trade Duration", fmt: "days" },
+      { key: "avg_trade_duration", label: "Duree moyenne d'une transaction", source: "extra", raw: "Avg. Trade Duration", fmt: "days" },
+    ],
+  },
+  {
+    title: "Robustesse",
+    rows: [
+      { key: "profit_factor", label: "Facteur de profit", source: "field", raw: "profit_factor", fmt: "num", interpret: true },
+      { key: "expectancy_pct", label: "Esperance de gain", source: "extra", raw: "Expectancy [%]", fmt: "pct" },
+      { key: "sqn", label: "SQN", source: "extra", raw: "SQN", fmt: "num", interpret: true },
+      { key: "kelly_criterion", label: "Critere de Kelly", source: "extra", raw: "Kelly Criterion", fmt: "num" },
+    ],
+  },
+];
+
+function metricValue(row, metric) {
+  let value = metric.source === "field" ? row[metric.raw] : extraMetric(row, metric.raw);
+  if (value === null || value === undefined) return null;
+  value = Number(value);
+  if (metric.scale100) value *= 100;
+  return value;
+}
+
+function formatMetric(row, metric) {
+  const value = metricValue(row, metric);
+  if (value === null) return "n/d";
+  if (metric.fmt === "pct") return fmtPct(value);
+  if (metric.fmt === "money")
+    return `${Number(value).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
+  if (metric.fmt === "days") return `${fmt(value, 1)} j`;
+  if (metric.fmt === "int") return String(Math.round(value));
+  return fmt(value);
+}
+
+function metricInterpretation(row, metric) {
+  if (!metric.interpret) return null;
+  return interpretMetric(metric.key, metricValue(row, metric));
+}
+
 async function runTest() {
   isRunning.value = true;
   error.value = null;
   results.value = null;
+  activePlotKey.value = null;
   try {
     const { data: runData } = await apiClient.post("/backtests/run-kernc", {
       period_start: periodStart.value,
@@ -128,7 +251,17 @@ function resetToDefaults() {
       n'affecte jamais le signal reel ni tes positions. Chaque test cree un nouveau run independant.
     </p>
 
-    <div class="grid grid-cols-2 gap-3 mb-3">
+    <button class="text-xs text-blue-600 hover:underline mb-3 block" @click="showGuide = !showGuide">
+      {{ showGuide ? "▾" : "▸" }} Comment lire ces resultats ? (guide pour debutant)
+    </button>
+    <div v-if="showGuide" class="mb-3 bg-blue-50 border border-blue-100 rounded p-3 space-y-2">
+      <div v-for="section in GUIDE_SECTIONS" :key="section.title">
+        <p class="text-xs font-semibold text-gray-700">{{ section.title }}</p>
+        <p class="text-xs text-gray-600 leading-relaxed">{{ section.text }}</p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
       <div>
         <label class="text-xs text-gray-500 block mb-1">Debut de periode</label>
         <input v-model="periodStart" type="date" class="border rounded px-2 py-1 text-sm w-full" />
@@ -210,38 +343,106 @@ function resetToDefaults() {
 
     <p v-if="error" class="text-xs text-red-600 mb-3">{{ error }}</p>
 
+    <!-- Tableau transpose : une metrique par ligne (avec explication au survol),
+         un resultat (strategie x horizon) par colonne - plus lisible que 24
+         colonnes cote a cote. Survole le nom d'une metrique pour son explication. -->
     <div v-if="groupedResults.length" class="border rounded bg-white overflow-x-auto">
       <table class="w-full text-xs">
         <thead class="bg-gray-50 text-gray-500 uppercase">
           <tr>
-            <th class="text-left px-2 py-1.5">Strategie</th>
-            <th class="text-left px-2 py-1.5">Horizon</th>
-            <th class="text-right px-2 py-1.5">Precision</th>
-            <th class="text-right px-2 py-1.5">Win rate</th>
-            <th class="text-right px-2 py-1.5">Sharpe</th>
-            <th class="text-right px-2 py-1.5">Sortino</th>
-            <th class="text-right px-2 py-1.5">Calmar</th>
-            <th class="text-right px-2 py-1.5">Rendement</th>
-            <th class="text-right px-2 py-1.5">Drawdown max</th>
+            <th class="text-left px-2 py-1.5 sticky left-0 bg-gray-50">Metrique</th>
+            <th
+              v-for="row in groupedResults"
+              :key="`${row.strategy_name}-${row.horizon}`"
+              class="text-right px-2 py-1.5 whitespace-nowrap cursor-help"
+              :title="STRATEGY_GLOSSARY[row.strategy_name]"
+            >
+              {{ strategyLabel(row.strategy_name) }}
+              <span class="block text-gray-400 normal-case">{{ row.horizon }}</span>
+              <button
+                v-if="row.plot_html"
+                class="block mt-1 text-[10px] normal-case font-normal text-blue-600 hover:underline ml-auto"
+                @click="togglePlot(row)"
+              >
+                {{ activePlotKey === resultKey(row) ? "Masquer le graphique" : "Voir le graphique" }}
+              </button>
+            </th>
           </tr>
         </thead>
         <tbody class="divide-y">
-          <tr v-for="row in groupedResults" :key="`${row.strategy_name}-${row.horizon}`">
-            <td class="px-2 py-1.5">{{ strategyLabel(row.strategy_name) }}</td>
-            <td class="px-2 py-1.5">{{ row.horizon }}</td>
-            <td class="px-2 py-1.5 text-right">{{ row.precision !== null ? fmtPct(row.precision * 100) : "n/d" }}</td>
-            <td class="px-2 py-1.5 text-right">{{ row.win_rate !== null ? fmtPct(row.win_rate * 100) : "n/d" }}</td>
-            <td class="px-2 py-1.5 text-right">{{ fmt(row.sharpe_ratio) }}</td>
-            <td class="px-2 py-1.5 text-right">{{ fmt(extraMetric(row, "Sortino Ratio")) }}</td>
-            <td class="px-2 py-1.5 text-right">{{ fmt(row.calmar_ratio) }}</td>
-            <td class="px-2 py-1.5 text-right">{{ fmtPct(extraMetric(row, "Return [%]")) }}</td>
-            <td class="px-2 py-1.5 text-right">{{ fmtPct(row.max_drawdown !== null ? row.max_drawdown * 100 : null) }}</td>
-          </tr>
+          <template v-for="group in METRIC_GROUPS" :key="group.title">
+            <tr class="bg-gray-50">
+              <td :colspan="1 + groupedResults.length" class="px-2 py-1 font-semibold text-gray-600">
+                {{ group.title }}
+              </td>
+            </tr>
+            <template v-for="metric in group.rows" :key="metric.key">
+              <tr>
+                <td class="px-2 py-1.5 text-gray-700 whitespace-nowrap sticky left-0 bg-white">
+                  <div class="flex items-center gap-1">
+                    <span>{{ metric.label }}</span>
+                    <button
+                      class="w-4 h-4 shrink-0 rounded-full border border-gray-300 text-gray-400 text-[10px] leading-none hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300"
+                      :aria-expanded="openInfoKey === metric.key"
+                      :title="'Explication : ' + metric.label"
+                      @click="toggleInfo(metric.key)"
+                    >
+                      ?
+                    </button>
+                  </div>
+                </td>
+                <td v-for="row in groupedResults" :key="`${row.strategy_name}-${row.horizon}-${metric.key}`" class="px-2 py-1.5 text-right">
+                  {{ formatMetric(row, metric) }}
+                  <span
+                    v-if="metricInterpretation(row, metric)"
+                    class="block text-[10px] mt-0.5 px-1 rounded border w-fit ml-auto"
+                    :class="toneClasses(metricInterpretation(row, metric).tone)"
+                    :title="metricInterpretation(row, metric).label"
+                  >
+                    {{ metricInterpretation(row, metric).label }}
+                  </span>
+                </td>
+              </tr>
+              <tr v-if="openInfoKey === metric.key">
+                <td :colspan="1 + groupedResults.length" class="px-2 py-2 bg-blue-50 text-gray-600 text-[11px] leading-relaxed">
+                  {{ METRIC_GLOSSARY[metric.key] }}
+                </td>
+              </tr>
+            </template>
+          </template>
         </tbody>
       </table>
     </div>
     <p v-if="results && !groupedResults.length" class="text-xs text-gray-400">
       Aucun resultat - historique de prix/signaux insuffisant sur cette periode pour cet actif.
     </p>
+
+    <!-- Synthese en langage clair (01/08/2026, voir constants/backtestingGlossary.js::
+         buildSynthesis) : complement du tableau detaille, pour un lecteur qui veut
+         comprendre le resultat sans dechiffrer 24 lignes de chiffres. -->
+    <div v-if="groupedResults.length" class="mt-3 space-y-2">
+      <p class="text-xs font-semibold text-gray-600">Resume en langage clair</p>
+      <div v-for="row in groupedResults" :key="`synthesis-${resultKey(row)}`" class="border rounded bg-white p-2">
+        <p class="text-xs font-medium text-gray-700 mb-1">
+          {{ strategyLabel(row.strategy_name) }} <span class="text-gray-400 font-normal">{{ row.horizon }}</span>
+        </p>
+        <p v-if="buildSynthesis(row)" class="text-xs text-gray-600 leading-relaxed">{{ buildSynthesis(row) }}</p>
+        <p v-else class="text-xs text-gray-400">Donnees insuffisantes pour generer un resume.</p>
+      </div>
+    </div>
+
+    <!-- Graphique interactif bt.plot() (01/08/2026, voir kernc_engine.py::_render_plot_html) :
+         HTML standalone genere par backtesting.py, affiche via srcdoc dans un iframe isole
+         (evite tout conflit CSS/JS avec le reste de l'app). Un seul graphique a la fois. -->
+    <div v-if="activePlotResult" class="mt-3 border rounded bg-white">
+      <div class="flex items-center justify-between px-2 py-1.5 border-b bg-gray-50">
+        <p class="text-xs text-gray-600">
+          Graphique - {{ strategyLabel(activePlotResult.strategy_name) }}
+          <span class="text-gray-400">{{ activePlotResult.horizon }}</span>
+        </p>
+        <button class="text-xs text-gray-500 hover:underline" @click="activePlotKey = null">Fermer</button>
+      </div>
+      <iframe :srcdoc="activePlotResult.plot_html" class="w-full border-0" style="height: 600px" sandbox="allow-scripts"></iframe>
+    </div>
   </div>
 </template>

@@ -9,6 +9,7 @@ from app.jobs.credit_dividends_job import credit_dividends_job
 from app.jobs.daily_briefing_job import daily_briefing_job
 from app.jobs.ingest_news_job import ingest_news_job
 from app.jobs.ingest_prices_job import ingest_prices_job
+from app.jobs.market_overview_job import market_overview_job
 from app.jobs.notify_changes_job import notify_changes_job
 from app.jobs.refresh_analyst_ratings_job import refresh_analyst_ratings_job
 
@@ -44,9 +45,19 @@ def register_jobs() -> None:
     scheduler.add_job(
         daily_briefing_job, CronTrigger(hour=7, minute=30), id="daily_briefing", replace_existing=True
     )
+    # 01/08/2026 : page "Marche" (indices + top hausses/baisses FR/US) - 3
+    # rafraichissements par jour comme demande (7h, 12h, 17h). Decale de 10
+    # minutes par rapport aux autres jobs de 7h pour eviter de surcharger le
+    # meme instant (voir docs/14-jobs-planifies.md).
+    scheduler.add_job(
+        market_overview_job,
+        CronTrigger(hour="7,12,17", minute=10),
+        id="market_overview",
+        replace_existing=True,
+    )
     logger.info(
         "Jobs planifies enregistres: ingest_prices, ingest_news, compute_signals, notify_changes, "
-        "refresh_analyst_ratings, credit_dividends, daily_briefing"
+        "refresh_analyst_ratings, credit_dividends, daily_briefing, market_overview"
     )
 
 

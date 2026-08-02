@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -49,4 +49,12 @@ class BacktestResult(Base):
     # Best/Worst Trade...), sans avoir a migrer une colonne par metrique.
     strategy_name: Mapped[str | None] = mapped_column(String(50))
     extra_metrics: Mapped[dict | None] = mapped_column(JSONB)
+    # 01/08/2026 : graphique interactif natif de backtesting.py (bt.plot() -
+    # chandeliers + courbe de capital + marqueurs de trades), genere en HTML
+    # standalone au moment du run (voir kernc_engine.py::_render_plot_html)
+    # et stocke tel quel - uniquement rempli pour le moteur backtesting.py
+    # (jamais pour "internal_rules", qui n'a pas d'equivalent). NULL pour
+    # tous les runs anterieurs a cet ajout (pas de reconstruction retroactive
+    # possible sans rejouer le backtest, voir discussion avec l'utilisateur).
+    plot_html: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

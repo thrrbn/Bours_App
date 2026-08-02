@@ -195,7 +195,8 @@ async function onReset() {
     <p v-if="store.summary && !store.summary.positions.length" class="text-sm text-gray-400 mb-6">
       Aucune position - achete un actif ci-dessus pour commencer la simulation.
     </p>
-    <table v-else-if="store.summary" class="w-full text-sm border rounded bg-white mb-6 overflow-hidden">
+    <div v-else-if="store.summary" class="border rounded bg-white mb-6 overflow-x-auto">
+    <table class="w-full text-sm">
       <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
         <tr>
           <th class="text-left px-3 py-2">Actif</th>
@@ -275,6 +276,7 @@ async function onReset() {
         </template>
       </tbody>
     </table>
+    </div>
 
     <h3 class="text-sm font-semibold mb-2">Transactions recentes</h3>
     <ul class="divide-y border rounded bg-white text-sm">

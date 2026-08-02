@@ -201,7 +201,7 @@ const week52Position = computed(() => {
         Comparatif secteur
       </h3>
 
-      <div v-if="store.sectorComparison.peers" class="grid grid-cols-3 gap-2 text-center text-sm mb-2">
+      <div v-if="store.sectorComparison.peers" class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center text-sm mb-2">
         <div>
           <div class="text-gray-500 text-xs mb-1">PER</div>
           <div class="font-semibold">{{ fmtRatio(store.sectorComparison.this_trailing_pe) }}</div>

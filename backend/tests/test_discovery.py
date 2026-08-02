@@ -3,7 +3,7 @@ Tests de la decouverte de candidats (assets/discovery.py) : parse_screener_quote
 est une fonction pure isolee de l'appel reseau (meme principe que
 binance.parse_klines) - testable sans mock du screener yfinance.
 """
-from app.domains.assets.discovery import _guess_market, parse_screener_quotes
+from app.domains.assets.discovery import guess_market, parse_screener_quotes
 
 
 def test_parse_screener_quotes_extracts_symbol_name_market():
@@ -39,15 +39,15 @@ def test_parse_screener_quotes_handles_missing_or_empty_quotes():
 
 
 def test_guess_market_uses_exchange_code_first():
-    assert _guess_market({"exchange": "NMS"}) == "NASDAQ"
-    assert _guess_market({"exchange": "NYQ"}) == "NYSE"
+    assert guess_market({"exchange": "NMS"}) == "NASDAQ"
+    assert guess_market({"exchange": "NYQ"}) == "NYSE"
 
 
 def test_guess_market_falls_back_to_full_exchange_name():
-    assert _guess_market({"exchange": "", "fullExchangeName": "NasdaqGS"}) == "NASDAQ"
-    assert _guess_market({"exchange": "", "fullExchangeName": "NYSE"}) == "NYSE"
+    assert guess_market({"exchange": "", "fullExchangeName": "NasdaqGS"}) == "NASDAQ"
+    assert guess_market({"exchange": "", "fullExchangeName": "NYSE"}) == "NYSE"
 
 
 def test_guess_market_defaults_to_us_autre_when_unknown():
-    assert _guess_market({"exchange": "TYO", "fullExchangeName": "Tokyo"}) == "US_AUTRE"
-    assert _guess_market({}) == "US_AUTRE"
+    assert guess_market({"exchange": "TYO", "fullExchangeName": "Tokyo"}) == "US_AUTRE"
+    assert guess_market({}) == "US_AUTRE"
