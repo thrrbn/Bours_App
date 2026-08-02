@@ -28,6 +28,20 @@ const MOVER_SECTIONS = [
   { key: "CRYPTO", label: "Crypto (Binance)", referenceUrl: "https://www.binance.com/en/markets/overview", referenceLabel: "Binance" },
 ];
 
+// Liens externes (page d'accueil de l'app) vers des sources de reference
+// gratuites, en complement des donnees deja affichees ci-dessus - la meme
+// philosophie que MOVER_SECTIONS/INDEX_DEFINITIONS cote backend (voir
+// provider.py) : cette application ne se substitue jamais a ces sources,
+// elle y renvoie explicitement.
+const USEFUL_LINKS = [
+  { label: "Yahoo Finance France", url: "https://fr.finance.yahoo.com/", description: "Cotations et actualites, marches francais et internationaux" },
+  { label: "Yahoo Finance US", url: "https://finance.yahoo.com/", description: "Cotations et actualites, marches americains" },
+  { label: "Boursorama", url: "https://www.boursorama.com/bourse/", description: "Reference francophone : cours, actualites, forums" },
+  { label: "ZoneBourse", url: "https://www.zonebourse.com/", description: "Fiches valeurs detaillees, consensus analystes" },
+  { label: "Euronext Live", url: "https://live.euronext.com/", description: "Cotations officielles Euronext (Paris, Bruxelles, Amsterdam...)" },
+  { label: "Binance", url: "https://www.binance.com/en/markets/overview", description: "Cotations crypto en direct" },
+];
+
 function pnlClass(value) {
   if (value === null || value === undefined) return "text-gray-400";
   return value >= 0 ? "text-emerald-600" : "text-red-600";
@@ -177,5 +191,23 @@ function fmtDateTime(iso) {
         </div>
       </div>
     </template>
+
+    <!-- Liens utiles : toujours affiches, meme sans instantane charge -->
+    <div class="mt-8 pt-6 border-t">
+      <h3 class="text-sm font-semibold mb-2">Liens utiles</h3>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        <a
+          v-for="link in USEFUL_LINKS"
+          :key="link.url"
+          :href="link.url"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="border rounded-lg p-3 bg-white hover:bg-gray-50"
+        >
+          <div class="text-sm font-medium mb-0.5">{{ link.label }} ↗</div>
+          <div class="text-xs text-gray-500">{{ link.description }}</div>
+        </a>
+      </div>
+    </div>
   </div>
 </template>
