@@ -9,3 +9,8 @@ dist/
 
 # Artefacts Vite generes au demarrage (rebuild config a chaud)
 vite.config.js.timestamp-*.mjs
+
+# Cle de deploiement SSH du NAS (placee directement a la racine du repo cote
+# NAS plutot que dans ~/.ssh - jamais a suivre en git, meme par accident).
+bourse_app_nas_deploy
+bourse_app_nas_deploy.pub
