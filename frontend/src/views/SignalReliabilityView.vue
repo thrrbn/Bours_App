@@ -6,9 +6,10 @@
 // (job evaluate_signal_outcomes_job) : cette page n'affiche que le resultat
 // deja calcule, aucun bouton "recalculer" ici (voir ParamsLabPanel.vue pour
 // le backtest a la demande, qui reste le bon outil pour tester des variantes).
-import { onMounted } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useSignalReliabilityStore } from "../stores/signalReliability";
 import { useStrategyScorecardStore } from "../stores/strategyScorecard";
+import { classifyScorecardConfidence, toneClasses } from "../constants/backtestingGlossary";
 
 const store = useSignalReliabilityStore();
 const strategyStore = useStrategyScorecardStore();
@@ -57,6 +58,26 @@ function fmtReturn(stats) {
   if (!stats || stats.avg_return_pct === null || stats.avg_return_pct === undefined) return "n/d";
   return `${stats.avg_return_pct >= 0 ? "+" : ""}${stats.avg_return_pct.toFixed(1)}%`;
 }
+
+// 13/08/2026 : "arbitrer entre strategies plutot que de juger sur un seul
+// backtest" - classement triable par fenetre, plutot qu'un tableau statique
+// dans l'ordre alphabetique. Les lignes horizon="n/a" (SMA/RSI/MACD/
+// Bollinger/buy&hold) et les horizons court/moyen/long (moteur interne,
+// signal_replay) ne sont pas strictement comparables entre elles - le tri
+// reste indicatif (voir horizon affiche sur chaque ligne), pas un
+// classement absolu.
+const sortWindow = ref("365d");
+
+const sortedStrategyResults = computed(() => {
+  const results = strategyStore.scorecard?.results ?? [];
+  return [...results].sort((a, b) => {
+    const aWinRate = a.windows[sortWindow.value]?.avg_win_rate;
+    const bWinRate = b.windows[sortWindow.value]?.avg_win_rate;
+    if (aWinRate === null || aWinRate === undefined) return 1;
+    if (bWinRate === null || bWinRate === undefined) return -1;
+    return bWinRate - aWinRate;
+  });
+});
 </script>
 
 <template>
@@ -112,21 +133,30 @@ function fmtReturn(stats) {
     <p class="text-sm text-gray-500 mb-4">
       Chaque strategie testable dans "tester les parametres" (SMA, RSI, MACD, Bollinger, nos signaux, moteur
       interne) est rejouee automatiquement chaque semaine avec ses parametres par defaut, sur les positions du
-      portefeuille virtuel - pour voir son evolution dans la duree plutot qu'un seul test ponctuel.
+      portefeuille virtuel - pour arbitrer entre strategies sur leur tendance dans la duree, plutot que de juger
+      sur un seul test ponctuel (voir "tester les parametres" sur une position pour ce test ponctuel, qui affiche
+      desormais aussi ce meme historique en contexte).
     </p>
 
     <p v-if="strategyStore.isLoading" class="text-sm text-gray-500">Chargement...</p>
     <p v-if="strategyStore.error" class="text-sm text-red-600">{{ strategyStore.error }}</p>
 
     <template v-if="strategyStore.scorecard">
-      <p class="text-xs text-gray-400 mb-4">
-        Dernier calcul : {{ fmtDate(strategyStore.scorecard.last_evaluated_at) }}
-      </p>
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-xs text-gray-400">Dernier calcul : {{ fmtDate(strategyStore.scorecard.last_evaluated_at) }}</p>
+        <label class="text-xs text-gray-500 flex items-center gap-1.5">
+          Classer par
+          <select v-model="sortWindow" class="border rounded px-1.5 py-1 text-xs">
+            <option v-for="w in STRATEGY_WINDOW_ORDER" :key="w" :value="w">{{ STRATEGY_WINDOW_LABELS[w] }}</option>
+          </select>
+        </label>
+      </div>
 
-      <div v-if="strategyStore.scorecard.results.length" class="border rounded bg-white overflow-x-auto mb-3">
+      <div v-if="strategyStore.scorecard.results.length" class="border rounded bg-white overflow-x-auto mb-1">
         <table class="w-full text-sm">
           <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
             <tr>
+              <th class="text-left px-3 py-2 font-medium">#</th>
               <th class="text-left px-3 py-2 font-medium">Strategie</th>
               <th v-for="w in STRATEGY_WINDOW_ORDER" :key="w" class="text-right px-3 py-2 font-medium">
                 {{ STRATEGY_WINDOW_LABELS[w] }}
@@ -134,22 +164,35 @@ function fmtReturn(stats) {
             </tr>
           </thead>
           <tbody class="divide-y">
-            <tr v-for="row in strategyStore.scorecard.results" :key="`${row.strategy_name}-${row.horizon}`">
-              <td class="px-3 py-2 font-medium">
+            <tr v-for="(row, idx) in sortedStrategyResults" :key="`${row.strategy_name}-${row.horizon}`">
+              <td class="px-3 py-2 text-gray-400 text-xs align-top">{{ idx + 1 }}</td>
+              <td class="px-3 py-2 font-medium align-top">
                 {{ strategyLabel(row.strategy_name) }}
                 <span v-if="row.horizon !== 'n/a'" class="text-xs text-gray-400 block">{{ HORIZON_LABELS[row.horizon] || row.horizon }}</span>
               </td>
-              <td v-for="w in STRATEGY_WINDOW_ORDER" :key="w" class="px-3 py-2 text-right">
+              <td v-for="w in STRATEGY_WINDOW_ORDER" :key="w" class="px-3 py-2 text-right align-top">
                 <span class="font-mono font-semibold">{{ fmtWinRate(row.windows[w]) }}</span>
-                <span class="text-xs text-gray-400 block">reussite ({{ row.windows[w]?.count ?? 0 }} test(s))</span>
+                <span class="text-xs text-gray-400 block">reussite</span>
                 <span v-if="row.windows[w] && row.windows[w].avg_return_pct !== null" class="text-xs text-gray-500 block">
                   rendement moyen : {{ fmtReturn(row.windows[w]) }}
+                </span>
+                <span
+                  class="inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] border cursor-help"
+                  :class="toneClasses(classifyScorecardConfidence(row.windows[w]?.count ?? 0).tone)"
+                  :title="classifyScorecardConfidence(row.windows[w]?.count ?? 0).label"
+                >
+                  {{ row.windows[w]?.count ?? 0 }} test{{ (row.windows[w]?.count ?? 0) > 1 ? "s" : "" }}
                 </span>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
+      <p v-if="strategyStore.scorecard.results.length" class="text-xs text-gray-400 mb-3">
+        Classement indicatif : le moteur interne et "nos signaux" varient par horizon (court/moyen/long), les
+        benchmarks (SMA, RSI, MACD, Bollinger, buy &amp; hold) sont independants de l'horizon - compare d'abord des
+        lignes avec un echantillon suffisant (badge ci-dessus) avant de tirer une conclusion.
+      </p>
       <p v-else class="text-xs text-gray-400 mb-3">
         Aucune evaluation encore disponible - normal juste apres l'activation de cette fonctionnalite : le job
         hebdomadaire n'a pas encore tourne, ou aucune position n'est encore suivie dans le portefeuille virtuel.

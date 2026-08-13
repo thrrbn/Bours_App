@@ -198,6 +198,24 @@ export function toneClasses(tone) {
 }
 
 // ---------------------------------------------------------------------------
+// Confiance du scorecard par strategie (13/08/2026 : "arbitrer entre
+// strategies plutot que de juger sur un seul backtest" - voir
+// backend/.../backtests/service.py::get_strategy_scorecard,
+// jobs/evaluate_strategies_job.py). Un taux de reussite moyen calcule sur 2
+// runs hebdomadaires n'a pas la meme valeur que sur 30 - ce badge le rend
+// visible partout ou le scorecard est affiche (ParamsLabPanel.vue,
+// SignalReliabilityView.vue), plutot que de laisser un chiffre nu suggerer
+// une precision qu'il n'a pas encore.
+// ---------------------------------------------------------------------------
+
+export function classifyScorecardConfidence(count) {
+  if (!count || count <= 0) return { label: "Aucun test evalue pour l'instant", tone: "amber" };
+  if (count < 5) return { label: `Trop tot pour juger (${count} test${count > 1 ? "s" : ""} seulement)`, tone: "amber" };
+  if (count < 20) return { label: `Echantillon encore limite (${count} tests)`, tone: "gray" };
+  return { label: `Echantillon plus etoffe (${count} tests)`, tone: "gray" };
+}
+
+// ---------------------------------------------------------------------------
 // Guide "comment lire ces resultats" (01/08/2026) - vue d'ensemble en 1-2
 // phrases par groupe de metriques (voir ParamsLabPanel.vue::METRIC_GROUPS),
 // affichee avant meme d'avoir lance un test, pour donner un repere a un

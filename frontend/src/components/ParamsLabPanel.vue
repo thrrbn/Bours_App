@@ -7,7 +7,7 @@
 // decision, SANS jamais toucher au moteur de signal reel ni au portefeuille
 // (ad-hoc, rien n'est sauvegarde - chaque clic sur "Lancer le test" cree un
 // nouveau run de backtest independant, consultable via son propre run_id).
-import { computed, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import apiClient from "../api/client";
 import {
   METRIC_GLOSSARY,
@@ -16,7 +16,39 @@ import {
   interpretMetric,
   toneClasses,
   buildSynthesis,
+  classifyScorecardConfidence,
 } from "../constants/backtestingGlossary";
+import { useStrategyScorecardStore } from "../stores/strategyScorecard";
+
+// 13/08/2026 : "arbitrer entre strategies plutot que de juger sur un seul
+// backtest" - le scorecard hebdomadaire (evalue automatiquement sur tout le
+// portefeuille, voir jobs/evaluate_strategies_job.py) est charge ici pour
+// donner du contexte a CHAQUE run ponctuel de ce panneau, plutot que de le
+// laisser isole dans la page Fiabilite. Un seul chargement partage si
+// l'utilisateur a deja visite /fiabilite dans cette session (store Pinia).
+const strategyScorecardStore = useStrategyScorecardStore();
+onMounted(() => {
+  if (!strategyScorecardStore.scorecard && !strategyScorecardStore.isLoading) {
+    strategyScorecardStore.load();
+  }
+});
+
+// Correspondance directe : les runs ad-hoc de ce panneau (POST /run,
+// /run-kernc) et le job planifie utilisent exactement les memes couples
+// (strategy_name, horizon) - "short"/"medium"/"long" pour internal_rules/
+// signal_replay, "n/a" pour les benchmarks independants de l'horizon (voir
+// backend/.../backtests/router.py). Retourne null si aucun historique n'a
+// encore ete calcule pour cette combinaison precise.
+function historicalStats(row) {
+  const scorecard = strategyScorecardStore.scorecard;
+  if (!scorecard) return null;
+  return scorecard.results.find((r) => r.strategy_name === row.strategy_name && r.horizon === row.horizon) || null;
+}
+
+function fmtHistWinRate(stats) {
+  if (!stats || stats.avg_win_rate === null || stats.avg_win_rate === undefined) return "n/d";
+  return `${(stats.avg_win_rate * 100).toFixed(0)}%`;
+}
 
 const props = defineProps({
   assetId: { type: String, required: true },
@@ -549,6 +581,32 @@ function resetToDefaults() {
         </p>
         <p v-if="buildSynthesis(row)" class="text-xs text-gray-600 leading-relaxed">{{ buildSynthesis(row) }}</p>
         <p v-else class="text-xs text-gray-400">Donnees insuffisantes pour generer un resume.</p>
+
+        <!-- 13/08/2026 : contexte historique du scorecard hebdomadaire -
+             replace ce SEUL run dans la duree, plutot que de le juger isolement
+             (voir /fiabilite pour le detail complet par strategie/horizon). -->
+        <div v-if="historicalStats(row)" class="mt-2 pt-2 border-t border-gray-100">
+          <p class="text-[11px] text-gray-500 mb-1">
+            Historique de cette strategie (evaluee automatiquement chaque semaine sur tout ton portefeuille - pas
+            seulement ce run ponctuel) :
+          </p>
+          <div class="flex flex-wrap gap-1.5">
+            <span
+              v-for="w in ['90d', '365d']"
+              :key="w"
+              class="text-[11px] px-1.5 py-0.5 rounded border cursor-help"
+              :class="toneClasses(classifyScorecardConfidence(historicalStats(row).windows[w]?.count ?? 0).tone)"
+              :title="classifyScorecardConfidence(historicalStats(row).windows[w]?.count ?? 0).label"
+            >
+              {{ w === "90d" ? "90j" : "12 mois" }} : {{ fmtHistWinRate(historicalStats(row).windows[w]) }} de reussite
+              ({{ historicalStats(row).windows[w]?.count ?? 0 }} test{{ (historicalStats(row).windows[w]?.count ?? 0) > 1 ? "s" : "" }})
+            </span>
+          </div>
+        </div>
+        <p v-else class="text-[11px] text-gray-400 mt-2 pt-2 border-t border-gray-100 italic">
+          Pas encore d'historique pour cette strategie/horizon - le job hebdomadaire d'evaluation n'a pas encore
+          tourne, ou aucune position du portefeuille n'y correspond. Voir la page "Fiabilite" pour le detail complet.
+        </p>
       </div>
     </div>
 
