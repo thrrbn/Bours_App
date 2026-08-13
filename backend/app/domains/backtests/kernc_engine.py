@@ -74,9 +74,29 @@ from app.domains.signals.models_ml.baseline_rules import DEFAULT_DECISION_PARAMS
 
 STRATEGY_SIGNAL_REPLAY = "signal_replay"
 STRATEGY_SMA_CROSS = "sma_cross"
+STRATEGY_RSI = "rsi_mean_reversion"
+STRATEGY_MACD = "macd_cross"
+STRATEGY_BOLLINGER = "bollinger_reversion"
 STRATEGY_BUY_AND_HOLD = "buy_and_hold"
 
-ALL_STRATEGIES = (STRATEGY_SIGNAL_REPLAY, STRATEGY_SMA_CROSS, STRATEGY_BUY_AND_HOLD)
+# 13/08/2026 : RSI/MACD/Bollinger ajoutes a la demande explicite de
+# l'utilisateur - le seul benchmark a fenetres reellement modulables etait
+# jusque-la sma_cross, juge trop mince pour comparer des reglages de facon
+# solide (voir docs/STACK.md). Trois techniques classiques, chacune avec ses
+# propres parametres testables (meme principe que n1/n2 pour sma_cross) :
+# - rsi_mean_reversion : achete a la sortie de survente, vend a la sortie de
+#   surachat (retour a la moyenne sur un oscillateur borne).
+# - macd_cross : croisement de la ligne MACD et de sa ligne de signal.
+# - bollinger_reversion : achete au contact de la bande basse, vend au
+#   contact de la bande haute (retour a la moyenne sur la volatilite).
+ALL_STRATEGIES = (
+    STRATEGY_SIGNAL_REPLAY,
+    STRATEGY_SMA_CROSS,
+    STRATEGY_RSI,
+    STRATEGY_MACD,
+    STRATEGY_BOLLINGER,
+    STRATEGY_BUY_AND_HOLD,
+)
 
 # Meme convention de sens que evaluate_signals() dans service.py : un signal
 # "achat_speculatif"/"surveillance" est haussier, "prudence"/"vente_defensive"
@@ -236,6 +256,43 @@ def _sma(values, n):
     return pd.Series(values).rolling(n).mean()
 
 
+def _ema_series(values, span):
+    return pd.Series(values).ewm(span=span, adjust=False).mean()
+
+
+def _rsi_series(values, period):
+    """
+    Meme formule que market_data/service.py::_rsi (lissage exponentiel plutot
+    que moyenne mobile simple, convention Wilder) - reimplementee ici plutot
+    que reutilisee : celle-ci prend un tableau brut (self.data.Close de
+    backtesting.py) plutot qu'une colonne de DataFrame indexee par date.
+    """
+    s = pd.Series(values)
+    delta = s.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / period, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, float("nan"))
+    rsi = 100 - (100 / (1 + rs))
+    rsi = rsi.mask((avg_loss == 0) & (avg_gain > 0), 100.0)  # aucune perte -> RSI maximal
+    rsi = rsi.mask((avg_loss == 0) & (avg_gain == 0), 50.0)  # aucun mouvement de prix -> neutre
+    return rsi
+
+
+def _macd_line(values, fast, slow):
+    s = pd.Series(values)
+    return s.ewm(span=fast, adjust=False).mean() - s.ewm(span=slow, adjust=False).mean()
+
+
+def _bollinger_band(values, period, num_std, sign):
+    """sign=+1 pour la bande haute, -1 pour la bande basse."""
+    s = pd.Series(values)
+    sma = s.rolling(period).mean()
+    std = s.rolling(period).std()
+    return sma + sign * num_std * std
+
+
 class SignalReplayStrategy(Strategy):
     """
     Rejoue nos propres signaux comme des ordres reels : passe a 100% long
@@ -303,6 +360,77 @@ class SmaCrossStrategy(Strategy):
             self.position.close()
 
 
+class RsiStrategy(Strategy):
+    """
+    RSI - retour a la moyenne (13/08/2026, voir docstring de module) : achete
+    quand le RSI ressort de la zone de survente (repasse au-dessus du seuil
+    bas - signal classique de reprise), solde la position quand il ressort
+    de la zone de surachat (repasse en dessous du seuil haut). Parametres
+    modulables : periode du RSI, seuils de survente/surachat.
+    """
+
+    rsi_period = 14
+    oversold = 30.0
+    overbought = 70.0
+
+    def init(self):
+        self.rsi = self.I(_rsi_series, self.data.Close, self.rsi_period)
+
+    def next(self):
+        if crossover(self.rsi, self.oversold):
+            self.buy()
+        elif crossover(self.overbought, self.rsi):
+            self.position.close()
+
+
+class MacdStrategy(Strategy):
+    """
+    MACD - croisement (13/08/2026, voir docstring de module) : achete quand
+    la ligne MACD croise au-dessus de sa ligne de signal (momentum haussier
+    naissant), solde quand elle croise en dessous. Parametres modulables :
+    fenetres rapide/lente (ligne MACD) et fenetre de la ligne de signal.
+    """
+
+    fast = 12
+    slow = 26
+    signal = 9
+
+    def init(self):
+        self.macd = self.I(_macd_line, self.data.Close, self.fast, self.slow)
+        self.macd_signal = self.I(_ema_series, self.macd, self.signal)
+
+    def next(self):
+        if crossover(self.macd, self.macd_signal):
+            self.buy()
+        elif crossover(self.macd_signal, self.macd):
+            self.position.close()
+
+
+class BollingerStrategy(Strategy):
+    """
+    Bandes de Bollinger - retour a la moyenne (13/08/2026, voir docstring de
+    module) : achete au contact/passage sous la bande basse (prix juge
+    statistiquement bas par rapport a sa moyenne recente), solde au contact/
+    passage au-dessus de la bande haute. Parametres modulables : periode de
+    la moyenne mobile et largeur des bandes (en ecarts-types).
+    """
+
+    period = 20
+    num_std = 2.0
+
+    def init(self):
+        close = self.data.Close
+        self.upper = self.I(_bollinger_band, close, self.period, self.num_std, 1)
+        self.lower = self.I(_bollinger_band, close, self.period, self.num_std, -1)
+
+    def next(self):
+        price = self.data.Close[-1]
+        if price <= self.lower[-1] and not self.position:
+            self.buy()
+        elif price >= self.upper[-1] and self.position:
+            self.position.close()
+
+
 class BuyAndHoldStrategy(Strategy):
     """Benchmark le plus simple : achete a 100% des le premier jour
     disponible, ne revend jamais - reference incontournable pour juger si
@@ -320,6 +448,9 @@ class BuyAndHoldStrategy(Strategy):
 _STRATEGY_CLASSES = {
     STRATEGY_SIGNAL_REPLAY: SignalReplayStrategy,
     STRATEGY_SMA_CROSS: SmaCrossStrategy,
+    STRATEGY_RSI: RsiStrategy,
+    STRATEGY_MACD: MacdStrategy,
+    STRATEGY_BOLLINGER: BollingerStrategy,
     STRATEGY_BUY_AND_HOLD: BuyAndHoldStrategy,
 }
 
@@ -376,6 +507,15 @@ async def run_kernc_backtest(
     sma_n1: int | None = None,
     sma_n2: int | None = None,
     decision_params: DecisionParams | None = None,
+    rsi_period: int | None = None,
+    rsi_oversold: float | None = None,
+    rsi_overbought: float | None = None,
+    macd_fast: int | None = None,
+    macd_slow: int | None = None,
+    macd_signal: int | None = None,
+    bollinger_period: int | None = None,
+    bollinger_num_std: float | None = None,
+    generate_plot: bool = True,
 ) -> dict | None:
     """
     Execute un backtest via backtesting.py pour un actif/strategie/periode
@@ -385,13 +525,22 @@ async def run_kernc_backtest(
     que comme une erreur, coherent avec run_backtest_for_asset() (service.py)
     qui exclut deja les signaux sans prix futurs disponibles.
 
-    sma_n1/sma_n2 (uniquement pour sma_cross) et decision_params (uniquement
-    pour signal_replay) : overrides optionnels du "laboratoire de parametres"
-    (31/07/2026, voir docstring de module) - si omis, comportement strictement
-    identique a avant (fenetres 10/20, DEFAULT_DECISION_PARAMS). Les valeurs
-    effectivement utilisees sont toujours consignees dans extra_metrics
-    (cle "_params_used") pour rester lisibles/comparables a posteriori entre
-    plusieurs runs testant des reglages differents.
+    generate_plot (13/08/2026) : bt.plot() est le poste le plus couteux de
+    cette fonction (rendu Bokeh + IO fichier temporaire) et produit un HTML
+    de plusieurs dizaines de Ko par resultat - inutile pour le job hebdomadaire
+    d'evaluation des strategies (jobs/evaluate_strategies_job.py, potentiellement
+    des dizaines de runs d'affilee sur un NAS modeste), qui n'affiche jamais
+    ce graphique. Reste a True par defaut pour ne rien changer au comportement
+    de /run-kernc (voir router.py), qui l'expose dans ParamsLabPanel.vue.
+
+    sma_n1/sma_n2 (sma_cross), decision_params (signal_replay), rsi_*
+    (rsi_mean_reversion), macd_* (macd_cross), bollinger_* (bollinger_reversion) :
+    overrides optionnels du "laboratoire de parametres" (31/07/2026, etendu
+    13/08/2026, voir docstring de module) - si omis, comportement strictement
+    identique aux defauts de chaque strategie (voir leurs classes). Les
+    valeurs effectivement utilisees sont toujours consignees dans
+    extra_metrics (cle "_params_used") pour rester lisibles/comparables a
+    posteriori entre plusieurs runs testant des reglages differents.
     """
     strategy_cls = _STRATEGY_CLASSES.get(strategy_name)
     if strategy_cls is None:
@@ -427,6 +576,28 @@ async def run_kernc_backtest(
         run_kwargs["n1"] = effective_n1
         run_kwargs["n2"] = effective_n2
         params_used = {"n1": effective_n1, "n2": effective_n2}
+    elif strategy_name == STRATEGY_RSI:
+        effective_period = rsi_period or RsiStrategy.rsi_period
+        effective_oversold = rsi_oversold if rsi_oversold is not None else RsiStrategy.oversold
+        effective_overbought = rsi_overbought if rsi_overbought is not None else RsiStrategy.overbought
+        run_kwargs["rsi_period"] = effective_period
+        run_kwargs["oversold"] = effective_oversold
+        run_kwargs["overbought"] = effective_overbought
+        params_used = {"rsi_period": effective_period, "oversold": effective_oversold, "overbought": effective_overbought}
+    elif strategy_name == STRATEGY_MACD:
+        effective_fast = macd_fast or MacdStrategy.fast
+        effective_slow = macd_slow or MacdStrategy.slow
+        effective_signal = macd_signal or MacdStrategy.signal
+        run_kwargs["fast"] = effective_fast
+        run_kwargs["slow"] = effective_slow
+        run_kwargs["signal"] = effective_signal
+        params_used = {"fast": effective_fast, "slow": effective_slow, "signal": effective_signal}
+    elif strategy_name == STRATEGY_BOLLINGER:
+        effective_period = bollinger_period or BollingerStrategy.period
+        effective_num_std = bollinger_num_std or BollingerStrategy.num_std
+        run_kwargs["period"] = effective_period
+        run_kwargs["num_std"] = effective_num_std
+        params_used = {"period": effective_period, "num_std": effective_num_std}
 
     # finalize_trades=True : une position encore ouverte a la fin de la
     # periode (frequent pour buy_and_hold, ou signal_replay si le dernier
@@ -445,7 +616,7 @@ async def run_kernc_backtest(
     if params_used:
         extra_metrics["_params_used"] = params_used
 
-    plot_html = _render_plot_html(bt)
+    plot_html = _render_plot_html(bt) if generate_plot else None
 
     return {
         # Champs types existants (memes unites que le moteur interne : ratios

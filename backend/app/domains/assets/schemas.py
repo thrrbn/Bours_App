@@ -71,6 +71,15 @@ class FundamentalsRead(BaseModel):
     week52_low: float | None
     week52_high: float | None
     beta: float | None
+    # 13/08/2026 : ratios complementaires (demande explicite : "ameliorer
+    # enrichir les fondamentaux"). return_on_equity/profit_margin en FRACTION
+    # (voir fundamentals_provider.py, point de vigilance) - affiches x100
+    # cote frontend.
+    return_on_equity: float | None = None
+    debt_to_equity: float | None = None
+    profit_margin: float | None = None
+    price_to_book: float | None = None
+    ev_to_ebitda: float | None = None
     business_summary: str | None
     fetched_at: datetime
     source: str = "yahoo_finance"
@@ -87,6 +96,33 @@ class SectorPeerAverage(BaseModel):
     avg_trailing_pe: float | None
     avg_dividend_yield: float | None
     avg_market_cap: float | None
+    avg_return_on_equity: float | None = None
+    avg_debt_to_equity: float | None = None
+    avg_profit_margin: float | None = None
+    avg_price_to_book: float | None = None
+    avg_ev_to_ebitda: float | None = None
+
+
+class SectorPeerRead(BaseModel):
+    """
+    13/08/2026 : UN pair individuel (pas seulement sa contribution a la
+    moyenne) - demande explicite de l'utilisateur : "afficher la liste des
+    pairs utilises (pas seulement leur moyenne)". Memes champs que
+    FundamentalsRead, limites a ceux pertinents pour une comparaison rapide
+    en tableau.
+    """
+
+    asset_id: uuid.UUID
+    ticker: str
+    name: str
+    trailing_pe: float | None
+    dividend_yield: float | None
+    market_cap: int | None
+    return_on_equity: float | None
+    debt_to_equity: float | None
+    profit_margin: float | None
+    price_to_book: float | None
+    ev_to_ebitda: float | None
 
 
 class SectorComparisonRead(BaseModel):
@@ -95,6 +131,7 @@ class SectorComparisonRead(BaseModel):
     this_dividend_yield: float | None
     this_market_cap: int | None
     peers: SectorPeerAverage | None
+    peer_list: list[SectorPeerRead] = []
     note: str
 
 

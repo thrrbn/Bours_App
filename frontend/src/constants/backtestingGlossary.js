@@ -22,10 +22,18 @@
 // ---------------------------------------------------------------------------
 
 export const STRATEGY_GLOSSARY = {
+  internal_rules:
+    "Le moteur de regles reel de l'application (voir signals/models_ml/baseline_rules.py) : compare chaque signal individuellement au rendement qui a suivi, SANS simuler de vrai cash/position (juste 'ce signal avait-il raison ?'). Complementaire de signal_replay (backtesting.py), qui simule un vrai portefeuille - les deux rejouent les MEMES signaux mais mesurent des choses differentes.",
   signal_replay:
     "Rejoue les signaux de cette application comme de vrais ordres (achat quand le signal devient haussier, vente quand il devient baissier) - la comparaison la plus directe avec ce que « suivre nos signaux » aurait vraiment produit, frais inclus.",
   sma_cross:
     "Croisement de moyennes mobiles (benchmark classique, exemple du README de backtesting.py) : achete quand la moyenne courte croise au-dessus de la longue, vend quand elle croise en dessous. Sert de point de comparaison simple et connu du secteur.",
+  rsi_mean_reversion:
+    "RSI - retour a la moyenne (benchmark classique) : achete quand le RSI ressort de la zone de survente (repasse au-dessus du seuil bas), vend quand il ressort de la zone de surachat (repasse en dessous du seuil haut). Periode et seuils modulables.",
+  macd_cross:
+    "MACD - croisement (benchmark classique) : achete quand la ligne MACD croise au-dessus de sa ligne de signal (momentum haussier naissant), vend quand elle croise en dessous. Fenetres rapide/lente/signal modulables.",
+  bollinger_reversion:
+    "Bandes de Bollinger - retour a la moyenne (benchmark classique) : achete au contact de la bande basse (prix statistiquement bas par rapport a sa moyenne recente), vend au contact de la bande haute. Periode et largeur des bandes modulables.",
   buy_and_hold:
     "Achete au premier jour disponible et ne revend jamais (benchmark le plus simple) - reference incontournable : une strategie active qui ne bat pas nettement ce chiffre n'apporte probablement rien une fois les frais comptes.",
 };
@@ -81,6 +89,10 @@ export const METRIC_GLOSSARY = {
     "SQN - System Quality Number (methode Van Tharp) : mesure si l'avantage statistique d'une strategie est regulier/fiable ou s'il tient surtout au hasard sur peu de transactions. Repere indicatif : en dessous de 2 = faible a moyen, 3 a 5 = bon, au-dessus de 7 = exceptionnel - a lire avec prudence, surtout si le nombre de transactions (# Trades) est petit.",
   kelly_criterion:
     "Critere de Kelly : fraction du capital qu'il faudrait theoriquement risquer a chaque transaction pour maximiser la croissance a long terme, d'apres le taux de reussite et le ratio gain/perte observes. En pratique, les praticiens n'utilisent quasiment jamais le Kelly plein (trop agressif/instable) - plutot un quart ou une moitie de ce chiffre.",
+  false_positive_rate_pct:
+    "Taux de faux positifs : pourcentage des signaux (moteur interne uniquement) qui se sont trompes de direction - le complement du taux de reussite. Uniquement calcule par le moteur interne, qui juge chaque signal individuellement (contrairement a backtesting.py, qui simule un portefeuille continu).",
+  avg_risk_reward:
+    "Ratio gain/perte moyen (moteur interne uniquement) : gain moyen des signaux gagnants divise par la perte moyenne (en valeur absolue) des signaux perdants. Au-dessus de 1, les gains sont en moyenne plus gros que les pertes - peut compenser un taux de reussite sous 50%.",
   alpha_pct:
     "Alpha : surperformance (ou sous-performance) de la strategie par rapport a ce qu'un simple « achat et conservation » aurait produit, ajustee du risque pris (Beta).",
   beta: "Beta : sensibilite du portefeuille simule aux mouvements du marche/de l'actif sous-jacent - 1 signifie une sensibilite egale au marche, moins de 1 une sensibilite plus faible, plus de 1 une sensibilite amplifiee.",

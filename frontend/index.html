@@ -2,8 +2,26 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Bourse Assistant</title>
+
+    <!-- PWA : manifest + icones (voir public/manifest.json). 13/08/2026,
+         demande explicite "ameliorer l'ergonomie mobile en gardant les
+         outils connus" -> PWA plutot qu'app native (Capacitor) ou refonte
+         complete, pour rester sur la stack Vue existante. -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- Meta specifiques iOS : Safari ne lit pas theme-color/manifest de la
+         meme facon que Chrome/Android, ces balises sont necessaires pour un
+         "Ajouter a l'ecran d'accueil" correct (barre de statut, plein ecran). -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Bourse" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="description" content="Simulateur de portefeuille et assistant d'analyse boursiere pedagogique - a titre informatif, pas un conseil en investissement." />
   </head>
   <body>
     <div id="app"></div>

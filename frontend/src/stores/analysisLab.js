@@ -22,8 +22,40 @@ export const useAnalysisLabStore = defineStore("analysisLab", {
     // /compare. `deepJob` reflete le dernier statut connu (pending/running/
     // completed/failed), rafraichi par polling depuis la vue.
     deepJob: null,
+    // Laboratoire d'indicateurs (13/08/2026, voir backend/.../feature_engineering.py::
+    // ADJUSTABLE_INDICATORS) : `adjustableIndicators` est charge UNE fois
+    // (registre statique cote backend, ne depend pas de l'actif selectionne)
+    // et mis en cache ici - `recomputeResult` est le dernier recalcul demande.
+    adjustableIndicators: [],
+    recomputeResult: null,
+    isRecomputing: false,
+    recomputeError: null,
   }),
   actions: {
+    async loadAdjustableIndicators() {
+      if (this.adjustableIndicators.length) return; // deja charge, registre statique
+      try {
+        const { data } = await apiClient.get("/analysis-lab/indicators/adjustable");
+        this.adjustableIndicators = data;
+      } catch (err) {
+        this.adjustableIndicators = [];
+      }
+    },
+    async recomputeIndicator(assetId, indicatorKey, params) {
+      this.isRecomputing = true;
+      this.recomputeError = null;
+      try {
+        const { data } = await apiClient.post(`/analysis-lab/${assetId}/indicators/${indicatorKey}/recompute`, {
+          params,
+        });
+        this.recomputeResult = data;
+      } catch (err) {
+        this.recomputeResult = null;
+        this.recomputeError = "Impossible de recalculer cet indicateur (historique de prix insuffisant ?).";
+      } finally {
+        this.isRecomputing = false;
+      }
+    },
     async loadFeatureSnapshot(assetId) {
       this.isLoadingFeatures = true;
       this.error = null;
@@ -93,6 +125,8 @@ export const useAnalysisLabStore = defineStore("analysisLab", {
       this.featureSnapshot = null;
       this.comparison = null;
       this.deepJob = null;
+      this.recomputeResult = null;
+      this.recomputeError = null;
     },
   },
 });

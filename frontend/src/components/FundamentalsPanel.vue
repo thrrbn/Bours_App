@@ -9,9 +9,14 @@ import {
   FUNDAMENTALS_GLOSSARY,
   fmtMarketCap,
   interpretBeta,
+  interpretDebtToEquity,
   interpretDividendYield,
+  interpretEvToEbitda,
   interpretMarketCap,
   interpretPE,
+  interpretPriceToBook,
+  interpretProfitMargin,
+  interpretReturnOnEquity,
   toneClasses,
 } from "../constants/fundamentalsGlossary";
 
@@ -34,6 +39,12 @@ async function onRefresh() {
 
 function fmtPct(value) {
   return value === null || value === undefined ? "n/d" : value.toFixed(2) + "%";
+}
+
+// ROE/marge nette sont stockes en FRACTION cote backend (0.15 = 15%, voir
+// fundamentals_provider.py) - a la difference de dividend_yield deja en %.
+function fmtFracPct(value) {
+  return value === null || value === undefined ? "n/d" : (value * 100).toFixed(2) + "%";
 }
 
 function fmtRatio(value) {
@@ -172,6 +183,76 @@ const week52Position = computed(() => {
             </span>
           </div>
           <div>
+            <div class="text-gray-500 text-xs mb-1 underline decoration-dotted decoration-gray-300 cursor-help" :title="FUNDAMENTALS_GLOSSARY.return_on_equity">
+              ROE
+            </div>
+            <div class="font-semibold">{{ fmtFracPct(store.fundamentals.return_on_equity) }}</div>
+            <span
+              v-if="interpretReturnOnEquity(store.fundamentals.return_on_equity)"
+              class="inline-block mt-1 px-1.5 py-0.5 rounded text-[11px] border cursor-help"
+              :class="toneClasses(interpretReturnOnEquity(store.fundamentals.return_on_equity).tone)"
+              :title="interpretReturnOnEquity(store.fundamentals.return_on_equity).rangeNote"
+            >
+              {{ interpretReturnOnEquity(store.fundamentals.return_on_equity).label }}
+            </span>
+          </div>
+          <div>
+            <div class="text-gray-500 text-xs mb-1 underline decoration-dotted decoration-gray-300 cursor-help" :title="FUNDAMENTALS_GLOSSARY.debt_to_equity">
+              Dette / capitaux propres
+            </div>
+            <div class="font-semibold">{{ fmtRatio(store.fundamentals.debt_to_equity) }}</div>
+            <span
+              v-if="interpretDebtToEquity(store.fundamentals.debt_to_equity)"
+              class="inline-block mt-1 px-1.5 py-0.5 rounded text-[11px] border cursor-help"
+              :class="toneClasses(interpretDebtToEquity(store.fundamentals.debt_to_equity).tone)"
+              :title="interpretDebtToEquity(store.fundamentals.debt_to_equity).rangeNote"
+            >
+              {{ interpretDebtToEquity(store.fundamentals.debt_to_equity).label }}
+            </span>
+          </div>
+          <div>
+            <div class="text-gray-500 text-xs mb-1 underline decoration-dotted decoration-gray-300 cursor-help" :title="FUNDAMENTALS_GLOSSARY.profit_margin">
+              Marge nette
+            </div>
+            <div class="font-semibold">{{ fmtFracPct(store.fundamentals.profit_margin) }}</div>
+            <span
+              v-if="interpretProfitMargin(store.fundamentals.profit_margin)"
+              class="inline-block mt-1 px-1.5 py-0.5 rounded text-[11px] border cursor-help"
+              :class="toneClasses(interpretProfitMargin(store.fundamentals.profit_margin).tone)"
+              :title="interpretProfitMargin(store.fundamentals.profit_margin).rangeNote"
+            >
+              {{ interpretProfitMargin(store.fundamentals.profit_margin).label }}
+            </span>
+          </div>
+          <div>
+            <div class="text-gray-500 text-xs mb-1 underline decoration-dotted decoration-gray-300 cursor-help" :title="FUNDAMENTALS_GLOSSARY.price_to_book">
+              P/B
+            </div>
+            <div class="font-semibold">{{ fmtRatio(store.fundamentals.price_to_book) }}</div>
+            <span
+              v-if="interpretPriceToBook(store.fundamentals.price_to_book)"
+              class="inline-block mt-1 px-1.5 py-0.5 rounded text-[11px] border cursor-help"
+              :class="toneClasses(interpretPriceToBook(store.fundamentals.price_to_book).tone)"
+              :title="interpretPriceToBook(store.fundamentals.price_to_book).rangeNote"
+            >
+              {{ interpretPriceToBook(store.fundamentals.price_to_book).label }}
+            </span>
+          </div>
+          <div>
+            <div class="text-gray-500 text-xs mb-1 underline decoration-dotted decoration-gray-300 cursor-help" :title="FUNDAMENTALS_GLOSSARY.ev_to_ebitda">
+              VE/EBITDA
+            </div>
+            <div class="font-semibold">{{ fmtRatio(store.fundamentals.ev_to_ebitda) }}</div>
+            <span
+              v-if="interpretEvToEbitda(store.fundamentals.ev_to_ebitda)"
+              class="inline-block mt-1 px-1.5 py-0.5 rounded text-[11px] border cursor-help"
+              :class="toneClasses(interpretEvToEbitda(store.fundamentals.ev_to_ebitda).tone)"
+              :title="interpretEvToEbitda(store.fundamentals.ev_to_ebitda).rangeNote"
+            >
+              {{ interpretEvToEbitda(store.fundamentals.ev_to_ebitda).label }}
+            </span>
+          </div>
+          <div>
             <div class="text-gray-500 text-xs mb-1 underline decoration-dotted decoration-gray-300 cursor-help" :title="FUNDAMENTALS_GLOSSARY.week52_range">
               Fourchette 52 semaines
             </div>
@@ -201,7 +282,7 @@ const week52Position = computed(() => {
         Comparatif secteur
       </h3>
 
-      <div v-if="store.sectorComparison.peers" class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center text-sm mb-2">
+      <div v-if="store.sectorComparison.peers" class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center text-sm mb-2">
         <div>
           <div class="text-gray-500 text-xs mb-1">PER</div>
           <div class="font-semibold">{{ fmtRatio(store.sectorComparison.this_trailing_pe) }}</div>
@@ -217,9 +298,70 @@ const week52Position = computed(() => {
           <div class="font-semibold">{{ fmtMarketCap(store.sectorComparison.this_market_cap) }}</div>
           <div class="text-xs text-gray-400">secteur : {{ fmtMarketCap(store.sectorComparison.peers.avg_market_cap) }}</div>
         </div>
+        <div>
+          <div class="text-gray-500 text-xs mb-1">ROE</div>
+          <div class="font-semibold">{{ fmtFracPct(store.fundamentals?.return_on_equity) }}</div>
+          <div class="text-xs text-gray-400">secteur : {{ fmtFracPct(store.sectorComparison.peers.avg_return_on_equity) }}</div>
+        </div>
+        <div>
+          <div class="text-gray-500 text-xs mb-1">Dette/capitaux propres</div>
+          <div class="font-semibold">{{ fmtRatio(store.fundamentals?.debt_to_equity) }}</div>
+          <div class="text-xs text-gray-400">secteur : {{ fmtRatio(store.sectorComparison.peers.avg_debt_to_equity) }}</div>
+        </div>
+        <div>
+          <div class="text-gray-500 text-xs mb-1">Marge nette</div>
+          <div class="font-semibold">{{ fmtFracPct(store.fundamentals?.profit_margin) }}</div>
+          <div class="text-xs text-gray-400">secteur : {{ fmtFracPct(store.sectorComparison.peers.avg_profit_margin) }}</div>
+        </div>
+        <div>
+          <div class="text-gray-500 text-xs mb-1">P/B</div>
+          <div class="font-semibold">{{ fmtRatio(store.fundamentals?.price_to_book) }}</div>
+          <div class="text-xs text-gray-400">secteur : {{ fmtRatio(store.sectorComparison.peers.avg_price_to_book) }}</div>
+        </div>
+        <div>
+          <div class="text-gray-500 text-xs mb-1">VE/EBITDA</div>
+          <div class="font-semibold">{{ fmtRatio(store.fundamentals?.ev_to_ebitda) }}</div>
+          <div class="text-xs text-gray-400">secteur : {{ fmtRatio(store.sectorComparison.peers.avg_ev_to_ebitda) }}</div>
+        </div>
       </div>
 
-      <p class="text-xs text-gray-400 italic">{{ store.sectorComparison.note }}</p>
+      <div v-if="store.sectorComparison.peer_list && store.sectorComparison.peer_list.length" class="mt-3">
+        <p class="text-xs uppercase text-gray-400 mb-2">
+          Pairs utilises pour la moyenne ({{ store.sectorComparison.peer_list.length }})
+        </p>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-left border-collapse">
+            <thead>
+              <tr class="text-gray-400 border-b">
+                <th class="py-1 pr-2 font-medium">Titre</th>
+                <th class="py-1 px-2 font-medium text-right">PER</th>
+                <th class="py-1 px-2 font-medium text-right">Rdt div.</th>
+                <th class="py-1 px-2 font-medium text-right">Capi.</th>
+                <th class="py-1 px-2 font-medium text-right">ROE</th>
+                <th class="py-1 px-2 font-medium text-right">Dette/CP</th>
+                <th class="py-1 px-2 font-medium text-right">Marge</th>
+                <th class="py-1 px-2 font-medium text-right">P/B</th>
+                <th class="py-1 pl-2 font-medium text-right">VE/EBITDA</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="peer in store.sectorComparison.peer_list" :key="peer.asset_id" class="border-b last:border-0">
+                <td class="py-1 pr-2 whitespace-nowrap">{{ peer.ticker }} <span class="text-gray-400">- {{ peer.name }}</span></td>
+                <td class="py-1 px-2 text-right">{{ fmtRatio(peer.trailing_pe) }}</td>
+                <td class="py-1 px-2 text-right">{{ fmtPct(peer.dividend_yield) }}</td>
+                <td class="py-1 px-2 text-right">{{ fmtMarketCap(peer.market_cap) }}</td>
+                <td class="py-1 px-2 text-right">{{ fmtFracPct(peer.return_on_equity) }}</td>
+                <td class="py-1 px-2 text-right">{{ fmtRatio(peer.debt_to_equity) }}</td>
+                <td class="py-1 px-2 text-right">{{ fmtFracPct(peer.profit_margin) }}</td>
+                <td class="py-1 px-2 text-right">{{ fmtRatio(peer.price_to_book) }}</td>
+                <td class="py-1 pl-2 text-right">{{ fmtRatio(peer.ev_to_ebitda) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <p class="text-xs text-gray-400 italic mt-2">{{ store.sectorComparison.note }}</p>
     </div>
   </div>
 </template>

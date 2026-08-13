@@ -15,10 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import AssetNotFoundError, InsufficientDataError
 from app.database import get_db
 from app.domains.analysis_lab import job_repository, service
+from app.domains.analysis_lab.feature_engineering import ADJUSTABLE_INDICATORS
 from app.domains.analysis_lab.schemas import (
     DEEP_MODEL_NAMES,
+    AdjustableIndicatorInfo,
     AssetComparisonRead,
     FeatureSnapshotRead,
+    IndicatorRecomputeRead,
+    IndicatorRecomputeRequest,
     PortfolioComparisonRead,
     TrainingJobCreate,
     TrainingJobRead,
@@ -30,6 +34,18 @@ from app.jobs.scheduler import scheduler
 router = APIRouter(prefix="/api/v1/analysis-lab", tags=["analysis_lab"])
 
 HORIZONS = ("short", "medium", "long")
+
+
+@router.get("/indicators/adjustable", response_model=list[AdjustableIndicatorInfo])
+async def list_adjustable_indicators():
+    """
+    13/08/2026 (laboratoire d'indicateurs) : liste les indicateurs qui
+    acceptent des parametres personnalisables (voir feature_engineering.py::
+    ADJUSTABLE_INDICATORS) - route LITTERALE declaree avant les routes
+    parametrees ci-dessous (convention du projet, voir docs/STACK.md), pour
+    eviter toute ambiguite de matching FastAPI avec /{asset_id}/... .
+    """
+    return service.list_adjustable_indicators()
 
 
 @router.get("/training-jobs/{job_id}", response_model=TrainingJobRead)
@@ -90,6 +106,32 @@ async def get_feature_snapshot(asset_id: uuid.UUID, db: AsyncSession = Depends(g
             "(POST /api/v1/market-data/{asset_id}/refresh)."
         )
     return snapshot
+
+
+@router.post("/{asset_id}/indicators/{indicator_key}/recompute", response_model=IndicatorRecomputeRead)
+async def recompute_indicator(
+    asset_id: uuid.UUID, indicator_key: str, payload: IndicatorRecomputeRequest, db: AsyncSession = Depends(get_db)
+):
+    """
+    13/08/2026 (laboratoire d'indicateurs) : recalcule UN indicateur avec des
+    parametres personnalises (periode, ecart-type...) - voir
+    feature_engineering.py::compute_adjustable_indicator. N'affecte jamais le
+    tableau des 70+ indicateurs (toujours calcules avec les parametres par
+    defaut, voir /{asset_id}/features), ni un signal, ni le portefeuille -
+    lecture/calcul a la demande uniquement, rien n'est sauvegarde.
+    """
+    if indicator_key not in ADJUSTABLE_INDICATORS:
+        raise HTTPException(404, f"Indicateur inconnu ou non ajustable: {indicator_key}")
+    asset = await assets_repository.get_by_id(db, asset_id)
+    if asset is None:
+        raise AssetNotFoundError(str(asset_id))
+    result = await service.recompute_indicator(db, asset, indicator_key, payload.params)
+    if result is None:
+        raise InsufficientDataError(
+            f"Aucun historique de prix pour cet actif - lance d'abord un rafraichissement "
+            "(POST /api/v1/market-data/{asset_id}/refresh)."
+        )
+    return IndicatorRecomputeRead(indicator=indicator_key, **result)
 
 
 @router.get("/{asset_id}/compare", response_model=AssetComparisonRead)

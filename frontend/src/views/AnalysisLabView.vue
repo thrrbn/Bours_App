@@ -6,7 +6,7 @@
 // calcule (indicateurs techniques bruts) et comparer des approches
 // classiques (Random Forest, XGBoost, ARIMA) au moteur de regles reel deja
 // affiche ailleurs dans l'app - jamais un signal a suivre.
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useAnalysisLabStore } from "../stores/analysisLab";
 import AssetAutocomplete from "../components/AssetAutocomplete.vue";
@@ -14,6 +14,7 @@ import HorizonTabs from "../components/HorizonTabs.vue";
 import {
   AGREEMENT_GLOSSARY,
   DIRECTION_GLOSSARY,
+  INDICATOR_HOW_CALCULATED,
   JOB_STATUS_GLOSSARY,
   METRIC_GLOSSARY,
   MODEL_GLOSSARY,
@@ -61,11 +62,61 @@ async function onTrainDeep() {
 
 onBeforeUnmount(stopDeepPolling);
 
+onMounted(() => {
+  store.loadAdjustableIndicators();
+});
+
 async function onSelectAsset(asset) {
   selectedAsset.value = asset;
   stopDeepPolling();
   store.reset();
   await Promise.all([store.loadFeatureSnapshot(asset.id), store.loadComparison(asset.id, horizon.value)]);
+}
+
+// Laboratoire d'indicateurs (13/08/2026, voir constants/analysisLabGlossary.js::
+// INDICATOR_HOW_CALCULATED et backend/.../feature_engineering.py::
+// ADJUSTABLE_INDICATORS) : selection d'un indicateur + ses parametres,
+// recalcules a la demande - independant du tableau des 70+ indicateurs
+// ci-dessus (toujours calcules avec les parametres par defaut).
+const showIndicatorLab = ref(false);
+const selectedIndicatorKey = ref(null);
+const indicatorParams = reactive({});
+
+watch(
+  () => store.adjustableIndicators,
+  (list) => {
+    if (list.length && !selectedIndicatorKey.value) selectedIndicatorKey.value = list[0].key;
+  },
+  { immediate: true }
+);
+
+const selectedIndicatorSpec = computed(() =>
+  store.adjustableIndicators.find((i) => i.key === selectedIndicatorKey.value)
+);
+
+watch(selectedIndicatorSpec, (spec) => {
+  Object.keys(indicatorParams).forEach((k) => delete indicatorParams[k]);
+  if (spec) Object.assign(indicatorParams, spec.default_params);
+  store.recomputeResult = null;
+});
+
+const INDICATOR_PARAM_LABELS = {
+  period: "Periode",
+  num_std: "Ecarts-types",
+  smooth_d: "Lissage %D",
+  atr_period: "Periode ATR",
+  multiplier: "Multiplicateur",
+  trading_days_per_year: "Jours de bourse / an",
+};
+
+function paramLabel(key) {
+  return INDICATOR_PARAM_LABELS[key] || key;
+}
+
+async function onRecomputeIndicator() {
+  if (!selectedAsset.value || !selectedIndicatorKey.value) return;
+  const numericParams = Object.fromEntries(Object.entries(indicatorParams).map(([k, v]) => [k, Number(v)]));
+  await store.recomputeIndicator(selectedAsset.value.id, selectedIndicatorKey.value, numericParams);
 }
 
 watch(horizon, async (h) => {
@@ -420,6 +471,54 @@ function goToAsset(assetId) {
                 </tr>
               </tbody>
             </table>
+          </div>
+
+          <!-- Laboratoire d'indicateurs (13/08/2026) : recalcule un indicateur
+               avec des parametres personnalises, independamment du tableau
+               ci-dessus (toujours a parametres par defaut). -->
+          <button class="text-xs text-blue-600 hover:underline mt-3 mb-2 block" @click="showIndicatorLab = !showIndicatorLab">
+            {{ showIndicatorLab ? "▾" : "▸" }} Indicateur ajustable - change les parametres et recalcule en direct
+          </button>
+          <div v-if="showIndicatorLab" class="border rounded bg-white p-3">
+            <div class="flex flex-wrap items-end gap-3 mb-3">
+              <label class="text-xs text-gray-500">
+                Indicateur
+                <select v-model="selectedIndicatorKey" class="border rounded px-2 py-1 text-sm block mt-1">
+                  <option v-for="ind in store.adjustableIndicators" :key="ind.key" :value="ind.key">{{ ind.label }}</option>
+                </select>
+              </label>
+              <label v-for="(value, key) in indicatorParams" :key="key" class="text-xs text-gray-500">
+                {{ paramLabel(key) }}
+                <input v-model="indicatorParams[key]" type="number" step="any" class="border rounded px-2 py-1 text-sm w-24 block mt-1" />
+              </label>
+              <button
+                class="px-3 py-1.5 bg-gray-900 text-white rounded text-xs disabled:opacity-40"
+                :disabled="store.isRecomputing"
+                @click="onRecomputeIndicator"
+              >
+                {{ store.isRecomputing ? "Calcul..." : "Recalculer" }}
+              </button>
+            </div>
+
+            <p v-if="selectedIndicatorKey && INDICATOR_HOW_CALCULATED[selectedIndicatorKey]" class="text-xs text-gray-500 mb-3">
+              <span class="font-semibold text-gray-600">Comment c'est calcule : </span>
+              {{ INDICATOR_HOW_CALCULATED[selectedIndicatorKey] }}
+            </p>
+
+            <p v-if="store.recomputeError" class="text-xs text-red-600">{{ store.recomputeError }}</p>
+
+            <div v-if="store.recomputeResult" class="bg-gray-50 border rounded p-2">
+              <p class="text-xs text-gray-400 mb-1">
+                Au {{ store.recomputeResult.as_of_date }} - parametres utilises :
+                {{ Object.entries(store.recomputeResult.params_used).map(([k, v]) => `${paramLabel(k)}=${v}`).join(", ") }}
+              </p>
+              <div class="flex flex-wrap gap-3">
+                <div v-for="(value, col) in store.recomputeResult.values" :key="col">
+                  <p class="text-xs text-gray-500">{{ col }}</p>
+                  <p class="font-mono text-sm font-semibold">{{ value === null ? "n/d" : value }}</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </template>

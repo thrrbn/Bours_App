@@ -33,6 +33,11 @@ class FundamentalsDTO:
         week52_low: float | None,
         week52_high: float | None,
         beta: float | None,
+        return_on_equity: float | None,
+        debt_to_equity: float | None,
+        profit_margin: float | None,
+        price_to_book: float | None,
+        ev_to_ebitda: float | None,
         business_summary: str | None,
         last_price: float | None,
         market_guess: str,
@@ -48,6 +53,11 @@ class FundamentalsDTO:
         self.week52_low = week52_low
         self.week52_high = week52_high
         self.beta = beta
+        self.return_on_equity = return_on_equity
+        self.debt_to_equity = debt_to_equity
+        self.profit_margin = profit_margin
+        self.price_to_book = price_to_book
+        self.ev_to_ebitda = ev_to_ebitda
         self.business_summary = business_summary
         self.last_price = last_price
         self.market_guess = market_guess
@@ -92,6 +102,17 @@ def fetch_fundamentals(ticker: str) -> FundamentalsDTO:
         week52_low=_safe_float(info.get("fiftyTwoWeekLow")),
         week52_high=_safe_float(info.get("fiftyTwoWeekHigh")),
         beta=_safe_float(info.get("beta")),
+        # 13/08/2026 : returnOnEquity/profitMargins renvoyes par yfinance en
+        # FRACTION (0.15 = 15%, meme convention que la plupart des champs
+        # "Margins"/"Return" de l'API Yahoo, a la difference de dividendYield
+        # deja en % - voir point de vigilance en tete de fichier). Affiche
+        # avec x100 cote frontend. debtToEquity/priceToBook/enterpriseToEbitda
+        # sont deja des ratios simples (pas de transformation).
+        return_on_equity=_safe_float(info.get("returnOnEquity")),
+        debt_to_equity=_safe_float(info.get("debtToEquity")),
+        profit_margin=_safe_float(info.get("profitMargins")),
+        price_to_book=_safe_float(info.get("priceToBook")),
+        ev_to_ebitda=_safe_float(info.get("enterpriseToEbitda")),
         business_summary=info.get("longBusinessSummary"),
         last_price=_safe_float(info.get("currentPrice") or info.get("regularMarketPrice")),
         market_guess=guess_market(info, ticker=ticker),

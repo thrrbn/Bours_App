@@ -39,6 +39,12 @@ const periodStart = ref(defaultPeriodStart());
 const periodEnd = ref(defaultPeriodEnd());
 
 const smaParams = reactive({ n1: 10, n2: 20 });
+// 13/08/2026 : trois strategies benchmark supplementaires (voir
+// kernc_engine.py::RsiStrategy/MacdStrategy/BollingerStrategy) - meme
+// principe que smaParams, chacune avec ses propres parametres modulables.
+const rsiParams = reactive({ period: 14, oversold: 30, overbought: 70 });
+const macdParams = reactive({ fast: 12, slow: 26, signal: 9 });
+const bollingerParams = reactive({ period: 20, num_std: 2.0 });
 const decisionParams = reactive({
   technical_weight: 0.5,
   news_weight: 0.5,
@@ -51,6 +57,7 @@ const decisionParams = reactive({
   min_confidence: 30,
 });
 const showAdvanced = ref(false);
+const showBenchmarks = ref(false);
 
 const isRunning = ref(false);
 const error = ref(null);
@@ -90,8 +97,12 @@ const groupedResults = computed(() => {
 const activePlotResult = computed(() => groupedResults.value.find((row) => resultKey(row) === activePlotKey.value));
 
 function strategyLabel(name) {
+  if (name === "internal_rules") return "Moteur interne (regles)";
   if (name === "signal_replay") return "Nos signaux (signal_replay)";
   if (name === "sma_cross") return "Croisement SMA (benchmark)";
+  if (name === "rsi_mean_reversion") return "RSI (benchmark)";
+  if (name === "macd_cross") return "MACD (benchmark)";
+  if (name === "bollinger_reversion") return "Bollinger (benchmark)";
   if (name === "buy_and_hold") return "Buy & hold (benchmark)";
   return name || "n/d";
 }
@@ -160,6 +171,8 @@ const METRIC_GROUPS = [
       { key: "avg_trade_pct", label: "Gain moyen par transaction", source: "extra", raw: "Avg. Trade [%]", fmt: "pct" },
       { key: "max_trade_duration", label: "Duree max d'une transaction", source: "extra", raw: "Max. Trade Duration", fmt: "days" },
       { key: "avg_trade_duration", label: "Duree moyenne d'une transaction", source: "extra", raw: "Avg. Trade Duration", fmt: "days" },
+      { key: "false_positive_rate_pct", label: "Taux de faux positifs (moteur interne)", source: "field", raw: "false_positive_rate", fmt: "pct", scale100: true },
+      { key: "avg_risk_reward", label: "Ratio gain/perte moyen (moteur interne)", source: "field", raw: "avg_risk_reward", fmt: "num" },
     ],
   },
   {
@@ -202,36 +215,91 @@ async function runTest() {
   error.value = null;
   results.value = null;
   activePlotKey.value = null;
+
+  const decisionParamsPayload = {
+    technical_weight: Number(decisionParams.technical_weight),
+    news_weight: Number(decisionParams.news_weight),
+    buy_threshold: Number(decisionParams.buy_threshold),
+    watch_threshold: Number(decisionParams.watch_threshold),
+    caution_threshold: Number(decisionParams.caution_threshold),
+    sell_threshold: Number(decisionParams.sell_threshold),
+    buy_max_risk: Number(decisionParams.buy_max_risk),
+    sell_min_risk: Number(decisionParams.sell_min_risk),
+    min_confidence: Number(decisionParams.min_confidence),
+  };
+
+  // 01/08/2026 : deux moteurs lances en parallele avec les MEMES parametres
+  // de decision, resultats fusionnes dans le meme tableau comparatif (voir
+  // strategyLabel()/STRATEGY_GLOSSARY.internal_rules) - le moteur interne
+  // (backend/.../backtests/service.py::run_backtest_for_asset) est desormais
+  // paramétrable au meme titre que backtesting.py (kernc_engine.py). Chaque
+  // appel est isole dans son propre try/catch : si l'un des deux moteurs
+  // echoue (ex. pas assez de signaux pour signal_replay) sur cet actif/
+  // periode, on affiche quand meme les resultats de l'autre plutot que de
+  // tout faire echouer.
+  const merged = [];
+  let anySucceeded = false;
+
   try {
     const { data: runData } = await apiClient.post("/backtests/run-kernc", {
       period_start: periodStart.value,
       period_end: periodEnd.value,
       asset_ids: [props.assetId],
       sma_params: { n1: Number(smaParams.n1), n2: Number(smaParams.n2) },
-      decision_params: {
-        technical_weight: Number(decisionParams.technical_weight),
-        news_weight: Number(decisionParams.news_weight),
-        buy_threshold: Number(decisionParams.buy_threshold),
-        watch_threshold: Number(decisionParams.watch_threshold),
-        caution_threshold: Number(decisionParams.caution_threshold),
-        sell_threshold: Number(decisionParams.sell_threshold),
-        buy_max_risk: Number(decisionParams.buy_max_risk),
-        sell_min_risk: Number(decisionParams.sell_min_risk),
-        min_confidence: Number(decisionParams.min_confidence),
+      rsi_params: {
+        period: Number(rsiParams.period),
+        oversold: Number(rsiParams.oversold),
+        overbought: Number(rsiParams.overbought),
       },
+      macd_params: {
+        fast: Number(macdParams.fast),
+        slow: Number(macdParams.slow),
+        signal: Number(macdParams.signal),
+      },
+      bollinger_params: { period: Number(bollingerParams.period), num_std: Number(bollingerParams.num_std) },
+      decision_params: decisionParamsPayload,
     });
     const { data: resultData } = await apiClient.get(`/backtests/${runData.backtest_run_id}`);
-    results.value = resultData;
+    merged.push(...resultData);
+    anySucceeded = true;
   } catch (err) {
-    error.value = "Impossible de lancer ce test (historique de prix/signaux insuffisant sur la periode choisie ?).";
-  } finally {
-    isRunning.value = false;
+    // Gere plus bas : erreur globale seulement si les DEUX moteurs echouent.
   }
+
+  try {
+    const { data: runData } = await apiClient.post("/backtests/run", {
+      engine_version: "rules_v1",
+      period_start: periodStart.value,
+      period_end: periodEnd.value,
+      asset_ids: [props.assetId],
+      decision_params: decisionParamsPayload,
+    });
+    const { data: resultData } = await apiClient.get(`/backtests/${runData.backtest_run_id}`);
+    merged.push(...resultData);
+    anySucceeded = true;
+  } catch (err) {
+    // Idem.
+  }
+
+  if (!anySucceeded) {
+    error.value = "Impossible de lancer ce test (historique de prix/signaux insuffisant sur la periode choisie ?).";
+  } else {
+    results.value = merged;
+  }
+  isRunning.value = false;
 }
 
 function resetToDefaults() {
   smaParams.n1 = 10;
   smaParams.n2 = 20;
+  rsiParams.period = 14;
+  rsiParams.oversold = 30;
+  rsiParams.overbought = 70;
+  macdParams.fast = 12;
+  macdParams.slow = 26;
+  macdParams.signal = 9;
+  bollingerParams.period = 20;
+  bollingerParams.num_std = 2.0;
   decisionParams.technical_weight = 0.5;
   decisionParams.news_weight = 0.5;
   decisionParams.buy_threshold = 70;
@@ -286,7 +354,60 @@ function resetToDefaults() {
       </div>
     </div>
 
-    <button class="text-xs text-gray-600 hover:underline mb-2" @click="showAdvanced = !showAdvanced">
+    <button class="text-xs text-gray-600 hover:underline mb-2 block" @click="showBenchmarks = !showBenchmarks">
+      {{ showBenchmarks ? "▾" : "▸" }} Autres benchmarks (RSI / MACD / Bollinger) - paramètres modulables
+    </button>
+    <div v-if="showBenchmarks" class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3 bg-white border rounded p-3">
+      <div>
+        <p class="text-xs font-semibold text-gray-600 mb-1">RSI (retour a la moyenne)</p>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-500 flex items-center justify-between gap-1">
+            Periode
+            <input v-model="rsiParams.period" type="number" min="2" class="border rounded px-2 py-1 text-sm w-20" />
+          </label>
+          <label class="text-xs text-gray-500 flex items-center justify-between gap-1">
+            Survente
+            <input v-model="rsiParams.oversold" type="number" min="0" max="100" class="border rounded px-2 py-1 text-sm w-20" />
+          </label>
+          <label class="text-xs text-gray-500 flex items-center justify-between gap-1">
+            Surachat
+            <input v-model="rsiParams.overbought" type="number" min="0" max="100" class="border rounded px-2 py-1 text-sm w-20" />
+          </label>
+        </div>
+      </div>
+      <div>
+        <p class="text-xs font-semibold text-gray-600 mb-1">MACD (croisement)</p>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-500 flex items-center justify-between gap-1">
+            Rapide
+            <input v-model="macdParams.fast" type="number" min="1" class="border rounded px-2 py-1 text-sm w-20" />
+          </label>
+          <label class="text-xs text-gray-500 flex items-center justify-between gap-1">
+            Lente
+            <input v-model="macdParams.slow" type="number" min="1" class="border rounded px-2 py-1 text-sm w-20" />
+          </label>
+          <label class="text-xs text-gray-500 flex items-center justify-between gap-1">
+            Signal
+            <input v-model="macdParams.signal" type="number" min="1" class="border rounded px-2 py-1 text-sm w-20" />
+          </label>
+        </div>
+      </div>
+      <div>
+        <p class="text-xs font-semibold text-gray-600 mb-1">Bollinger (retour a la moyenne)</p>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-500 flex items-center justify-between gap-1">
+            Periode
+            <input v-model="bollingerParams.period" type="number" min="2" class="border rounded px-2 py-1 text-sm w-20" />
+          </label>
+          <label class="text-xs text-gray-500 flex items-center justify-between gap-1">
+            Ecarts-types
+            <input v-model="bollingerParams.num_std" type="number" step="0.1" min="0.1" class="border rounded px-2 py-1 text-sm w-20" />
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <button class="text-xs text-gray-600 hover:underline mb-2 block" @click="showAdvanced = !showAdvanced">
       {{ showAdvanced ? "▾" : "▸" }} Seuils de decision (strategie "nos signaux") - defauts identiques au moteur reel
     </button>
     <div v-if="showAdvanced" class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3 bg-white border rounded p-3">

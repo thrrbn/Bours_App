@@ -16,13 +16,16 @@ des indicateurs relatifs pour comparer des runs entre eux, pas des chiffres
 import statistics
 import uuid
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domains.backtests import repository
+from app.domains.backtests.models import BacktestResult
 from app.domains.market_data.models import PriceBar
 from app.domains.signals.models import Signal
+from app.domains.signals.models_ml.baseline_rules import DecisionParams, classify_signal
 from app.domains.signals.training import HORIZON_FORWARD_DAYS
 
 
@@ -174,13 +177,29 @@ async def _compute_forward_return(
 
 
 async def run_backtest_for_asset(
-    db: AsyncSession, asset_id: uuid.UUID, horizon: str, period_start: date, period_end: date
+    db: AsyncSession,
+    asset_id: uuid.UUID,
+    horizon: str,
+    period_start: date,
+    period_end: date,
+    decision_params: DecisionParams | None = None,
 ) -> BacktestMetrics:
     """
     Rejoue les signaux d'un actif/horizon sur une periode donnee : pour
     chaque signal, calcule le rendement reel qui a suivi, puis agrege via
     evaluate_signals(). Les signaux sans assez de prix futurs disponibles
     (trop recents) sont simplement exclus, pas traites comme un echec.
+
+    01/08/2026 (laboratoire de parametres, moteur interne - voir
+    kernc_engine.py::SignalReplayStrategy pour le meme principe applique au
+    second moteur) : decision_params est optionnel. Omis, comportement
+    strictement identique a avant (le final_signal DEJA stocke est utilise
+    tel quel). Fourni, chaque signal est RECLASSIFIE a la volee a partir de
+    ses 4 scores bruts (technical/news/risk/confidence, inchanges) via
+    classify_signal() - permet de tester "et si les seuils/ponderations de
+    decision avaient ete autres ?" sur le moteur interne, sans recalculer les
+    indicateurs techniques sous-jacents (meme limite assumee que le moteur
+    backtesting.py).
     """
     stmt = (
         select(Signal)
@@ -201,6 +220,85 @@ async def run_backtest_for_asset(
         forward_return = await _compute_forward_return(db, asset_id, signal.computed_at.date(), forward_days)
         if forward_return is None:
             continue
-        outcomes.append({"final_signal": signal.final_signal, "forward_return": forward_return})
+        if decision_params is not None:
+            final_signal = classify_signal(
+                float(signal.technical_score),
+                float(signal.news_score),
+                float(signal.risk_score),
+                float(signal.confidence_score),
+                params=decision_params,
+            )
+        else:
+            final_signal = signal.final_signal
+        outcomes.append({"final_signal": final_signal, "forward_return": forward_return})
 
     return evaluate_signals(outcomes)
+
+
+# ---------------------------------------------------------------------------
+# Scorecard de fiabilite par strategie (13/08/2026, voir
+# jobs/evaluate_strategies_job.py) - agrege UNIQUEMENT les runs automatiques
+# hebdomadaires (run_kind="scheduled_strategy_eval", parametres par defaut),
+# jamais les tests ad-hoc de l'utilisateur (ParamsLabPanel.vue) dont les
+# parametres varient volontairement d'un test a l'autre.
+# ---------------------------------------------------------------------------
+
+SCORECARD_WINDOWS = {"90d": 90, "365d": 365, "all": None}
+
+
+def _aggregate_scheduled_results(results: list[BacktestResult]) -> dict[tuple[str, str], dict]:
+    """Regroupe par (strategy_name, horizon) - meme cle que ParamsLabPanel.vue::
+    resultKey - et calcule la moyenne du taux de reussite (win_rate, dispo
+    pour TOUTES les strategies) et du rendement (Return [%], uniquement pour
+    les strategies backtesting.py - absent pour internal_rules, voir
+    kernc_engine.py)."""
+    groups: dict[tuple[str, str], list[BacktestResult]] = {}
+    for r in results:
+        key = (r.strategy_name or "inconnu", r.horizon)
+        groups.setdefault(key, []).append(r)
+
+    aggregated = {}
+    for key, rows in groups.items():
+        win_rates = [float(r.win_rate) for r in rows if r.win_rate is not None]
+        returns = [
+            r.extra_metrics["Return [%]"]
+            for r in rows
+            if r.extra_metrics and "Return [%]" in r.extra_metrics and r.extra_metrics["Return [%]"] is not None
+        ]
+        aggregated[key] = {
+            "count": len(rows),
+            "avg_win_rate": round(sum(win_rates) / len(win_rates), 4) if win_rates else None,
+            "avg_return_pct": round(sum(returns) / len(returns), 2) if returns else None,
+        }
+    return aggregated
+
+
+async def get_strategy_scorecard(db: AsyncSession) -> dict:
+    """
+    Pour chaque strategie(+horizon), les stats agregees ci-dessus sur
+    chaque fenetre glissante de SCORECARD_WINDOWS - format "liste de lignes"
+    (pas un dict imbrique) pour un rendu direct en tableau cote frontend
+    (voir schemas.py::StrategyScorecardRow).
+    """
+    per_window: dict[str, dict[tuple[str, str], dict]] = {}
+    for window_key, window_days in SCORECARD_WINDOWS.items():
+        since = datetime.now(timezone.utc) - timedelta(days=window_days) if window_days is not None else None
+        results = await repository.get_scheduled_results(db, since=since)
+        per_window[window_key] = _aggregate_scheduled_results(results)
+
+    all_keys = set()
+    for window_stats in per_window.values():
+        all_keys.update(window_stats.keys())
+
+    empty_stats = {"count": 0, "avg_win_rate": None, "avg_return_pct": None}
+    rows = [
+        {
+            "strategy_name": strategy_name,
+            "horizon": horizon,
+            "windows": {wk: per_window[wk].get((strategy_name, horizon), empty_stats) for wk in SCORECARD_WINDOWS},
+        }
+        for strategy_name, horizon in sorted(all_keys)
+    ]
+
+    last_evaluated_at = await repository.get_last_scheduled_run_at(db)
+    return {"results": rows, "last_evaluated_at": last_evaluated_at}

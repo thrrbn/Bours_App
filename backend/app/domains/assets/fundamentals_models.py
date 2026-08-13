@@ -37,6 +37,16 @@ class AssetFundamentals(Base):
     week52_low: Mapped[float | None] = mapped_column(Float)
     week52_high: Mapped[float | None] = mapped_column(Float)
     beta: Mapped[float | None] = mapped_column(Float)
+    # 13/08/2026 : ratios complementaires (demande explicite de l'utilisateur -
+    # "ameliorer enrichir les fondamentaux, ratios sectoriels, comparaison
+    # peer-to-peer"). Memes reserves que les champs ci-dessus (voir
+    # fundamentals_provider.py) : chacun individuellement absent frequemment
+    # sur les valeurs europeennes de taille moyenne.
+    return_on_equity: Mapped[float | None] = mapped_column(Float)  # ROE, en fraction (0.15 = 15%)
+    debt_to_equity: Mapped[float | None] = mapped_column(Float)  # dette / capitaux propres
+    profit_margin: Mapped[float | None] = mapped_column(Float)  # marge nette, en fraction
+    price_to_book: Mapped[float | None] = mapped_column(Float)  # P/B
+    ev_to_ebitda: Mapped[float | None] = mapped_column(Float)  # VE/EBITDA
     business_summary: Mapped[str | None] = mapped_column(Text)
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

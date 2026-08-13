@@ -16,6 +16,13 @@ class BacktestRun(Base):
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
     asset_scope: Mapped[dict | None] = mapped_column(JSONB)
+    # 13/08/2026 : "manual" (defaut, "Lancer le test" avec parametres choisis
+    # par l'utilisateur) ou "scheduled_strategy_eval" (job hebdomadaire,
+    # parametres par defaut, voir jobs/evaluate_strategies_job.py) - permet
+    # au scorecard de fiabilite par strategie de n'agreger QUE des runs
+    # comparables entre eux (memes parametres, cadence reguliere), sans
+    # melanger avec les tests ad-hoc de l'utilisateur.
+    run_kind: Mapped[str] = mapped_column(String(20), nullable=False, server_default="manual")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

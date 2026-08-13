@@ -17,6 +17,7 @@ from app.domains.market_overview.router import router as market_overview_router
 from app.domains.news.router import router as news_router
 from app.domains.notifications.router import router as notifications_router
 from app.domains.portfolio.router import router as portfolio_router
+from app.domains.signal_reliability.router import router as signal_reliability_router
 from app.domains.signals.router import router as signals_router
 from app.domains.users.router import router as users_router
 from app.domains.watchlist.router import router as watchlist_router
@@ -57,6 +58,7 @@ app.include_router(analyst_router)
 app.include_router(maintenance_router)
 app.include_router(analysis_lab_router)
 app.include_router(market_overview_router)
+app.include_router(signal_reliability_router)
 
 
 @app.get("/api/v1/health")

@@ -179,6 +179,19 @@ def add_rsi_multi(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def add_rsi_custom(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    """
+    13/08/2026 : variante a UNE seule periode ajustable, pour le laboratoire
+    d'indicateurs (voir ADJUSTABLE_INDICATORS plus bas) - add_rsi_multi()
+    calcule toujours les 3 memes periodes fixes (7/14/21), utile pour le
+    tableau complet mais pas pour tester une periode arbitraire choisie par
+    l'utilisateur. Meme formule (_rsi), colonne nommee dynamiquement.
+    """
+    df = df.copy()
+    df[f"rsi_{period}"] = _rsi(df["Close"], period)
+    return df
+
+
 def add_stochastic(df: pd.DataFrame, period: int = 14, smooth_d: int = 3) -> pd.DataFrame:
     df = df.copy()
     lowest_low = df["Low"].rolling(period).min()
@@ -467,3 +480,106 @@ class FeatureEngineer:
         original_columns = set(df.columns)
         self.feature_names = [c for c in result.columns if c not in original_columns]
         return result
+
+
+# ---------------------------------------------------------------------------
+# Laboratoire d'indicateurs (13/08/2026) - demande explicite de l'utilisateur :
+# generate_all_features() ci-dessus applique TOUJOURS les parametres par
+# defaut (periode 14, 20...) - aucun moyen de tester "et si je prenais une
+# periode differente ?" sans modifier le code. Ce registre expose un
+# sous-ensemble volontairement scope (les indicateurs avec un ou plusieurs
+# parametres numeriques qui font sens a ajuster pour un debutant - periode,
+# ecart-type, multiplicateur) pour un recalcul a la demande (voir service.py::
+# recompute_indicator, router.py POST /{asset_id}/indicators/{key}/recompute).
+#
+# Volontairement EXCLUS de ce registre : les indicateurs sans parametre
+# ajustable (OBV, patterns de chandeliers, features temporelles/lags),
+# le SMA/EMA a fenetres multiples fixes (deja 6 periodes affichees dans le
+# tableau complet), et Parabolic SAR (parametres af_step/af_max moins
+# intuitifs a faire varier pour un debutant que "la periode").
+#
+# "func" prend le DataFrame OHLCV + les parametres nommes, retourne le
+# DataFrame enrichi - EXACTEMENT la signature des fonctions add_* ci-dessus,
+# reutilisees telles quelles (pas de duplication de logique de calcul).
+ADJUSTABLE_INDICATORS: dict[str, dict] = {
+    "adx": {"label": "ADX (force de tendance)", "func": add_adx, "default_params": {"period": 14}},
+    "aroon": {"label": "Aroon Oscillator", "func": add_aroon, "default_params": {"period": 25}},
+    "rsi": {"label": "RSI (indice de force relative)", "func": add_rsi_custom, "default_params": {"period": 14}},
+    "stochastic": {
+        "label": "Oscillateur stochastique",
+        "func": add_stochastic,
+        "default_params": {"period": 14, "smooth_d": 3},
+    },
+    "cci": {"label": "CCI (commodity channel index)", "func": add_cci, "default_params": {"period": 20}},
+    "williams_r": {"label": "Williams %R", "func": add_williams_r, "default_params": {"period": 14}},
+    "roc": {"label": "ROC (taux de variation)", "func": add_roc, "default_params": {"period": 20}},
+    "mfi": {"label": "MFI (money flow index)", "func": add_mfi, "default_params": {"period": 14}},
+    "bollinger": {
+        "label": "Bandes de Bollinger",
+        "func": add_bollinger,
+        "default_params": {"period": 20, "num_std": 2.0},
+    },
+    "atr": {"label": "ATR (average true range)", "func": add_atr, "default_params": {"period": 14}},
+    "keltner": {
+        "label": "Canaux de Keltner",
+        "func": add_keltner_channels,
+        "default_params": {"period": 20, "atr_period": 10, "multiplier": 2.0},
+    },
+    "historical_volatility": {
+        "label": "Volatilite historique annualisee",
+        "func": add_historical_volatility,
+        "default_params": {"period": 20, "trading_days_per_year": 252},
+    },
+    "cmf": {"label": "Chaikin Money Flow", "func": add_cmf, "default_params": {"period": 20}},
+    "vwap": {"label": "VWAP glissant", "func": add_vwap, "default_params": {"period": 20}},
+}
+
+
+def compute_adjustable_indicator(df: pd.DataFrame, indicator_key: str, params: dict) -> dict:
+    """
+    Recalcule UN SEUL indicateur du registre ci-dessus avec des parametres
+    (partiellement) personnalises, et retourne la derniere valeur de chaque
+    colonne qu'il produit - sans regenerer les 70+ features de
+    generate_all_features() (inutile et couteux pour tester un seul reglage).
+
+    Robuste aux conventions de nommage heterogenes des fonctions add_* (voir
+    leurs docstrings - certaines encodent la periode dans le nom de colonne,
+    ex. roc_20, d'autres non, ex. adx_14 reste "adx_14" meme avec period=21) :
+    plutot que de deviner les noms de colonnes produits, on compare les
+    colonnes du DataFrame avant/apres l'appel et on retourne tout ce qui est
+    nouveau - fonctionne quelle que soit la convention de nommage.
+
+    Leve KeyError si indicator_key est absent du registre (verifie plus haut,
+    cote router, avant d'appeler cette fonction - programming error sinon).
+
+    Bug reel trouve le 13/08/2026 (verification avant livraison) : le schema
+    cote API (IndicatorRecomputeRequest.params: dict[str, float]) convertit
+    TOUS les parametres en float cote Pydantic, y compris "period" - or
+    pandas .rolling(n) exige un entier strict (leve ValueError si n=20.0).
+    .ewm(alpha=1/n) tolerait un float, ce qui a masque le bug pour adx/rsi/
+    atr/keltner lors d'un premier test rapide - mais pas pour les 10 autres
+    indicateurs bases sur .rolling(). Fix : reconvertit chaque parametre au
+    meme TYPE que sa valeur par defaut dans le registre (source de verite),
+    plutot que de faire confiance au typage cote schema API.
+    """
+    spec = ADJUSTABLE_INDICATORS[indicator_key]
+    overrides = {k: v for k, v in params.items() if v is not None}
+    merged_params = {}
+    for key, default_value in spec["default_params"].items():
+        raw_value = overrides.get(key, default_value)
+        if isinstance(default_value, int) and not isinstance(default_value, bool):
+            merged_params[key] = int(round(raw_value))
+        else:
+            merged_params[key] = float(raw_value)
+
+    before_columns = set(df.columns)
+    result_df = spec["func"](df, **merged_params)
+    new_columns = [c for c in result_df.columns if c not in before_columns]
+
+    last_row = result_df[new_columns].iloc[-1]
+    values = {col: (None if pd.isna(value) else round(float(value), 6)) for col, value in last_row.items()}
+    return {
+        "as_of_date": str(result_df.index[-1].date()),
+        "params_used": merged_params,
+        "values": values,
+    }

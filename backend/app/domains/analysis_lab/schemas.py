@@ -29,6 +29,33 @@ class FeatureSnapshotRead(BaseModel):
     feature_count: int
 
 
+class AdjustableIndicatorInfo(BaseModel):
+    """
+    13/08/2026 (laboratoire d'indicateurs, voir feature_engineering.py::
+    ADJUSTABLE_INDICATORS) : decrit un indicateur recalculable a la demande -
+    de quoi construire les champs de parametres cote UI sans dupliquer le
+    registre en dur dans le frontend.
+    """
+
+    key: str
+    label: str
+    default_params: dict[str, float]
+
+
+class IndicatorRecomputeRequest(BaseModel):
+    """Parametres a appliquer, PARTIELS (voir compute_adjustable_indicator) -
+    tout champ omis retombe sur le defaut de l'indicateur."""
+
+    params: dict[str, float] = {}
+
+
+class IndicatorRecomputeRead(BaseModel):
+    indicator: str
+    as_of_date: str
+    params_used: dict[str, float]
+    values: dict[str, float | None]
+
+
 class ModelResultRead(BaseModel):
     model_name: str
     model_status: str

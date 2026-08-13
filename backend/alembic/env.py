@@ -40,6 +40,7 @@ from app.domains.portfolio.models import (  # noqa: F401
     PortfolioState,
     PortfolioTransaction,
 )
+from app.domains.signal_reliability.models import SignalOutcome  # noqa: F401
 from app.domains.signals.models import Signal, SignalExplanation  # noqa: F401
 from app.domains.users.models import User  # noqa: F401
 from app.domains.watchlist.models import WatchlistItem  # noqa: F401

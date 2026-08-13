@@ -20,7 +20,11 @@ import logging
 import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.analysis_lab.feature_engineering import generate_all_features
+from app.domains.analysis_lab.feature_engineering import (
+    ADJUSTABLE_INDICATORS,
+    compute_adjustable_indicator,
+    generate_all_features,
+)
 from app.domains.analysis_lab.models import (
     MIN_TRAINING_SAMPLES,
     ModelResult,
@@ -202,6 +206,32 @@ async def get_feature_snapshot(db: AsyncSession, asset: Asset) -> FeatureSnapsho
         features=features,
         feature_count=len(feature_cols),
     )
+
+
+def list_adjustable_indicators() -> list[dict]:
+    """
+    13/08/2026 : expose ADJUSTABLE_INDICATORS (feature_engineering.py) sans sa
+    reference de fonction Python (non serialisable) - juste de quoi construire
+    l'UI du laboratoire d'indicateurs (cle, libelle, parametres par defaut).
+    """
+    return [
+        {"key": key, "label": spec["label"], "default_params": spec["default_params"]}
+        for key, spec in ADJUSTABLE_INDICATORS.items()
+    ]
+
+
+async def recompute_indicator(db: AsyncSession, asset: Asset, indicator_key: str, params: dict) -> dict | None:
+    """
+    13/08/2026 (laboratoire d'indicateurs) : recalcule UN indicateur du
+    registre avec des parametres (partiellement) personnalises - voir
+    feature_engineering.py::compute_adjustable_indicator pour le detail.
+    Retourne None si l'historique de prix est insuffisant (traite comme
+    "rien a rapporter" par le routeur, meme convention que get_feature_snapshot).
+    """
+    df = await _load_ohlcv_dataframe(db, asset.id)
+    if df.empty:
+        return None
+    return compute_adjustable_indicator(df, indicator_key, params)
 
 
 async def compare_asset_by_id(db: AsyncSession, asset_id, horizon: str) -> AssetComparisonRead | None:

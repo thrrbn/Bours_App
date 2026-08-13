@@ -323,6 +323,33 @@ export function interpretFeature(name, value) {
   return { label: band.label, tone: band.tone, rangeNote: spec.rangeNote };
 }
 
+// ---------------------------------------------------------------------------
+// Laboratoire d'indicateurs (13/08/2026, voir backend/.../feature_engineering.py::
+// ADJUSTABLE_INDICATORS) : explication du CALCUL (formule/methode, pas
+// seulement la definition deja donnee par FEATURE_EXACT/explainFeature ci-
+// dessus) - reponse a "comment est-ce que ce chiffre a ete obtenu ?", pour
+// chaque indicateur recalculable avec des parametres personnalises. Cle =
+// indicator_key du registre backend (ex. "rsi"), pas le nom de colonne
+// (qui peut varier avec la periode choisie, ex. rsi_7 vs rsi_21).
+// ---------------------------------------------------------------------------
+
+export const INDICATOR_HOW_CALCULATED = {
+  adx: "1) Calcule le mouvement directionnel positif/negatif (+DM/-DM) jour par jour a partir des plus hauts/plus bas. 2) Lisse +DM/-DM et l'amplitude (True Range) sur la periode choisie pour obtenir +DI/-DI. 3) DX = 100 x |+DI - -DI| / (+DI + -DI). 4) ADX = moyenne lissee de DX sur la meme periode.",
+  aroon: "Pour chaque jour : Aroon Up = 100 x (periode - jours depuis le plus haut de la periode) / periode, Aroon Down = meme calcul avec le plus bas. L'oscillateur affiche = Aroon Up - Aroon Down.",
+  rsi: "1) Calcule les variations de cloture jour par jour, separees en hausses et baisses. 2) Lisse (moyenne mobile exponentielle) les hausses moyennes et les baisses moyennes sur la periode choisie. 3) RSI = 100 - [100 / (1 + hausses moyennes / baisses moyennes)].",
+  stochastic: "%K = 100 x (cloture - plus bas de la periode) / (plus haut de la periode - plus bas de la periode). %D = moyenne mobile de %K sur la fenetre de lissage choisie.",
+  cci: "1) Prix typique = (plus haut + plus bas + cloture) / 3. 2) Ecart du prix typique a sa moyenne mobile sur la periode. 3) CCI = ecart / (0.015 x ecart absolu moyen) - la constante 0.015 est une convention d'origine (Lambert) calibree pour que la plupart des valeurs restent entre -100 et 100.",
+  williams_r: "%R = -100 x (plus haut de la periode - cloture) / (plus haut de la periode - plus bas de la periode) - tres proche du stochastique %K, mais sur une echelle -100 a 0.",
+  roc: "Taux de variation = (cloture aujourd'hui - cloture il y a N jours) / cloture il y a N jours x 100, N = periode choisie.",
+  mfi: "Comme le RSI, mais pondere par le volume : 1) Prix typique x volume = flux monetaire brut. 2) Separe en flux positif/negatif selon que le prix typique monte ou baisse. 3) Meme formule que le RSI, appliquee au ratio flux positif / flux negatif sur la periode.",
+  bollinger: "1) Bande du milieu = moyenne mobile simple sur la periode. 2) Ecart-type des cours sur la meme periode. 3) Bande haute = milieu + (ecarts-types x ecart-type), bande basse = milieu - (ecarts-types x ecart-type).",
+  atr: "1) True Range de chaque jour = le plus grand des trois ecarts (haut-bas du jour, haut du jour-cloture veille, bas du jour-cloture veille). 2) ATR = moyenne lissee du True Range sur la periode choisie.",
+  keltner: "1) Ligne du milieu = moyenne mobile exponentielle des clotures sur la periode. 2) ATR calcule sur sa propre periode (independante de celle du milieu). 3) Bande haute = milieu + (multiplicateur x ATR), bande basse = milieu - (multiplicateur x ATR).",
+  historical_volatility: "1) Calcule les rendements logarithmiques jour par jour (ln(cloture / cloture veille)). 2) Ecart-type de ces rendements sur la periode choisie. 3) Annualise en multipliant par la racine carree du nombre de jours de bourse par an (252 par convention).",
+  cmf: "1) Multiplicateur de flux monetaire = [(cloture - plus bas) - (plus haut - cloture)] / (plus haut - plus bas), par jour. 2) Flux monetaire = multiplicateur x volume. 3) CMF = somme des flux monetaires sur la periode / somme des volumes sur la meme periode.",
+  vwap: "Somme, sur la periode choisie, du prix typique de chaque jour multiplie par son volume, divisee par la somme des volumes sur la meme periode - une moyenne ponderee par le volume plutot qu'une simple moyenne des prix.",
+};
+
 export function toneClasses(tone) {
   if (tone === "amber") return "bg-amber-50 text-amber-700 border-amber-300";
   return "bg-gray-100 text-gray-500 border-gray-300";

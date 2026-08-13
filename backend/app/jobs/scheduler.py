@@ -7,6 +7,8 @@ from apscheduler.triggers.cron import CronTrigger
 from app.jobs.compute_signals_job import compute_signals_job
 from app.jobs.credit_dividends_job import credit_dividends_job
 from app.jobs.daily_briefing_job import daily_briefing_job
+from app.jobs.evaluate_signal_outcomes_job import evaluate_signal_outcomes_job
+from app.jobs.evaluate_strategies_job import evaluate_strategies_job
 from app.jobs.ingest_news_job import ingest_news_job
 from app.jobs.ingest_prices_job import ingest_prices_job
 from app.jobs.market_overview_job import market_overview_job
@@ -55,9 +57,32 @@ def register_jobs() -> None:
         id="market_overview",
         replace_existing=True,
     )
+    # 13/08/2026 : scorecard de fiabilite reelle des signaux - apres
+    # ingest_prices (6h, fournit les cours servant a evaluer les signaux
+    # murs) et compute_signals (7h, ne devrait pas y avoir de nouveaux
+    # signaux non-evalues crees entre 7h et 7h45, mais l'ordre est prudent).
+    # Une fois par jour suffit (les signaux mettent des jours a murir).
+    scheduler.add_job(
+        evaluate_signal_outcomes_job,
+        CronTrigger(hour=7, minute=45),
+        id="evaluate_signal_outcomes",
+        replace_existing=True,
+    )
+    # 13/08/2026 : evaluation hebdomadaire des strategies de backtest (voir
+    # evaluate_strategies_job.py) - plus couteux que les jobs quotidiens
+    # (backtest complet x 7 strategies x positions du portefeuille), une fois
+    # par semaine suffit largement pour observer une tendance. Lundi matin,
+    # apres tous les jobs quotidiens de 6h-7h45.
+    scheduler.add_job(
+        evaluate_strategies_job,
+        CronTrigger(day_of_week="mon", hour=8, minute=0),
+        id="evaluate_strategies",
+        replace_existing=True,
+    )
     logger.info(
         "Jobs planifies enregistres: ingest_prices, ingest_news, compute_signals, notify_changes, "
-        "refresh_analyst_ratings, credit_dividends, daily_briefing, market_overview"
+        "refresh_analyst_ratings, credit_dividends, daily_briefing, market_overview, evaluate_signal_outcomes, "
+        "evaluate_strategies"
     )
 
 

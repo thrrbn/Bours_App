@@ -23,6 +23,16 @@ export const FUNDAMENTALS_GLOSSARY = {
     "Industrie : sous-categorie plus precise que le secteur (ex. secteur « Technologie », industrie « Semi-conducteurs »).",
   sector_comparison:
     "Comparatif secteur : moyenne calculee sur les AUTRES actifs suivis du meme secteur dont les fondamentaux ont deja ete rafraichis dans cette app - pas une moyenne de marche officielle, elle s'enrichit au fil de tes rafraichissements.",
+  return_on_equity:
+    "ROE (Return on Equity) : benefice net rapporte aux capitaux propres (en %). Mesure la rentabilite de l'entreprise pour ses actionnaires - combien elle degage de benefice avec l'argent qu'ils ont investi. Un ROE eleve n'est pas automatiquement bon signe : il peut aussi venir d'un fort endettement (a regarder avec la dette/capitaux propres).",
+  debt_to_equity:
+    "Dette / capitaux propres (Debt/Equity) : compare ce que l'entreprise doit a ce qu'elle possede en fonds propres. Plus le ratio est eleve, plus l'entreprise s'appuie sur la dette pour financer son activite - plus de risque en cas de retournement, mais parfois normal selon le secteur (ex. utilities, foncieres).",
+  profit_margin:
+    "Marge nette : part du chiffre d'affaires qui devient du benefice net (en %). Mesure l'efficacite globale de l'entreprise a transformer ses ventes en profit, apres toutes ses charges.",
+  price_to_book:
+    "P/B (Price/Book) : cours de l'action rapporte a la valeur comptable par action (actif net de l'entreprise). Un P/B bas peut signaler une decote (ou une entreprise en difficulte), un P/B eleve une prime payee par le marche (croissance attendue, actifs immateriels type marque/brevets peu visibles au bilan).",
+  ev_to_ebitda:
+    "VE/EBITDA (Enterprise Value/EBITDA) : valeur d'entreprise (capitalisation + dette nette) rapportee a l'EBITDA (resultat avant interets, impots, depreciation, amortissement). Souvent utilise pour comparer des entreprises entre elles independamment de leur structure de financement (dette vs capital) - plus bas peut signaler une decote relative.",
 };
 
 export function fmtMarketCap(value) {
@@ -94,6 +104,63 @@ export function interpretMarketCap(value) {
     { upTo: Infinity, label: "Grande capitalisation (« large cap », > 10 Md)", tone: "gray" },
   ];
   return { ...classify(value, bands), rangeNote: "seuils generiques, en devise du titre" };
+}
+
+export function interpretReturnOnEquity(value) {
+  if (value === null || value === undefined || Number.isNaN(value)) return null;
+  const pct = value * 100;
+  const bands = [
+    { upTo: 0, label: "Negatif (l'entreprise perd de l'argent sur la periode)", tone: "amber" },
+    { upTo: 10, label: "Plutot faible par rapport aux reperes generaux (< 10%)", tone: "gray" },
+    { upTo: 20, label: "Dans la moyenne generale du marche (10 a 20%)", tone: "gray" },
+    { upTo: Infinity, label: "Plutot eleve (> 20%) - verifie que ce n'est pas du a un fort endettement", tone: "amber" },
+  ];
+  return { ...classify(pct, bands), rangeNote: "en %, reperes generiques" };
+}
+
+export function interpretDebtToEquity(value) {
+  if (value === null || value === undefined || Number.isNaN(value)) return null;
+  const bands = [
+    { upTo: 50, label: "Endettement faible par rapport aux capitaux propres (< 0.5x)", tone: "gray" },
+    { upTo: 100, label: "Endettement modere (0.5x a 1x)", tone: "gray" },
+    { upTo: 200, label: "Endettement eleve (1x a 2x) - a regarder selon le secteur", tone: "amber" },
+    { upTo: Infinity, label: "Endettement tres eleve (> 2x) - a verifier selon le secteur (normal pour certains, ex. foncieres)", tone: "amber" },
+  ];
+  // yfinance renvoie debtToEquity generalement en "pourcentage" (ex. 120 = 1.2x)
+  return { ...classify(value, bands), rangeNote: "reperes generiques, varie fortement par secteur" };
+}
+
+export function interpretProfitMargin(value) {
+  if (value === null || value === undefined || Number.isNaN(value)) return null;
+  const pct = value * 100;
+  const bands = [
+    { upTo: 0, label: "Negatif (l'entreprise est en perte)", tone: "amber" },
+    { upTo: 5, label: "Marge faible (< 5%)", tone: "gray" },
+    { upTo: 15, label: "Marge courante (5 a 15%)", tone: "gray" },
+    { upTo: Infinity, label: "Marge elevee (> 15%)", tone: "gray" },
+  ];
+  return { ...classify(pct, bands), rangeNote: "en %, reperes generiques" };
+}
+
+export function interpretPriceToBook(value) {
+  if (value === null || value === undefined || Number.isNaN(value)) return null;
+  const bands = [
+    { upTo: 1, label: "En dessous de la valeur comptable (< 1x) - decote ou difficultes a verifier", tone: "amber" },
+    { upTo: 3, label: "Dans la moyenne generale du marche (1 a 3x)", tone: "gray" },
+    { upTo: Infinity, label: "Prime elevee par rapport a la valeur comptable (> 3x)", tone: "gray" },
+  ];
+  return { ...classify(value, bands), rangeNote: "reperes generiques, varie fortement par secteur" };
+}
+
+export function interpretEvToEbitda(value) {
+  if (value === null || value === undefined || Number.isNaN(value)) return null;
+  const bands = [
+    { upTo: 0, label: "Negatif ou EBITDA negatif (peu interpretable)", tone: "amber" },
+    { upTo: 8, label: "Plutot bas par rapport aux reperes generaux (< 8x)", tone: "gray" },
+    { upTo: 15, label: "Dans la moyenne generale du marche (8 a 15x)", tone: "gray" },
+    { upTo: Infinity, label: "Plutot eleve (> 15x)", tone: "gray" },
+  ];
+  return { ...classify(value, bands), rangeNote: "reperes generiques, varie fortement par secteur" };
 }
 
 export function toneClasses(tone) {

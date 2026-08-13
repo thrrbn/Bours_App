@@ -8,10 +8,19 @@ from app.domains.backtests.models import BacktestResult, BacktestRun
 
 
 async def create_run(
-    db: AsyncSession, engine_version: str, period_start: date, period_end: date, asset_scope: dict
+    db: AsyncSession,
+    engine_version: str,
+    period_start: date,
+    period_end: date,
+    asset_scope: dict,
+    run_kind: str = "manual",
 ) -> BacktestRun:
     run = BacktestRun(
-        engine_version=engine_version, period_start=period_start, period_end=period_end, asset_scope=asset_scope
+        engine_version=engine_version,
+        period_start=period_start,
+        period_end=period_end,
+        asset_scope=asset_scope,
+        run_kind=run_kind,
     )
     db.add(run)
     await db.commit()
@@ -74,3 +83,34 @@ async def get_results_for_run(db: AsyncSession, run_id: uuid.UUID) -> list[Backt
     stmt = select(BacktestResult).where(BacktestResult.backtest_run_id == run_id)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def get_scheduled_results(db: AsyncSession, since=None) -> list[BacktestResult]:
+    """
+    13/08/2026 (scorecard de fiabilite par strategie) : resultats des runs
+    AUTOMATIQUES uniquement (run_kind="scheduled_strategy_eval", voir
+    jobs/evaluate_strategies_job.py) - jamais des tests ad-hoc de
+    l'utilisateur (parametres variables d'un test a l'autre, inutilisables
+    pour une moyenne). `since` optionnel filtre sur BacktestRun.created_at
+    (la date du RUN, pas du resultat individuel) pour les fenetres glissantes.
+    """
+    stmt = (
+        select(BacktestResult)
+        .join(BacktestRun, BacktestResult.backtest_run_id == BacktestRun.id)
+        .where(BacktestRun.run_kind == "scheduled_strategy_eval")
+    )
+    if since is not None:
+        stmt = stmt.where(BacktestRun.created_at >= since)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_last_scheduled_run_at(db: AsyncSession):
+    stmt = (
+        select(BacktestRun.created_at)
+        .where(BacktestRun.run_kind == "scheduled_strategy_eval")
+        .order_by(BacktestRun.created_at.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()

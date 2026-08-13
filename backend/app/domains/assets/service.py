@@ -8,7 +8,13 @@ from app.domains.analyst import repository as analyst_repository
 from app.domains.assets import discovery, fundamentals_provider, fundamentals_repository, repository
 from app.domains.assets.fundamentals_models import AssetFundamentals
 from app.domains.assets.models import Asset
-from app.domains.assets.schemas import AssetCreate, AssetLookupRead, SectorComparisonRead, SectorPeerAverage
+from app.domains.assets.schemas import (
+    AssetCreate,
+    AssetLookupRead,
+    SectorComparisonRead,
+    SectorPeerAverage,
+    SectorPeerRead,
+)
 from app.domains.assets.seed_data import BEL20_ASSETS
 from app.domains.assets.seed_data_aex import AEX_ASSETS
 from app.domains.assets.seed_data_binance import BINANCE_MAJORS_ASSETS
@@ -190,6 +196,11 @@ async def refresh_fundamentals(db: AsyncSession, asset_id: uuid.UUID) -> AssetFu
         week52_high=dto.week52_high,
         beta=dto.beta,
         business_summary=dto.business_summary,
+        return_on_equity=dto.return_on_equity,
+        debt_to_equity=dto.debt_to_equity,
+        profit_margin=dto.profit_margin,
+        price_to_book=dto.price_to_book,
+        ev_to_ebitda=dto.ev_to_ebitda,
     )
 
 
@@ -211,27 +222,63 @@ async def get_sector_comparison(db: AsyncSession, asset_id: uuid.UUID) -> Sector
             this_dividend_yield=fundamentals.dividend_yield if fundamentals else None,
             this_market_cap=fundamentals.market_cap if fundamentals else None,
             peers=None,
+            peer_list=[],
             note="Secteur inconnu pour ce titre - rafraichis d'abord ses fondamentaux.",
         )
 
     peers = await fundamentals_repository.list_by_sector(db, sector, asset_id)
     if not peers:
         peer_avg = None
+        peer_list = []
         note = (
             f"Aucun autre actif suivi du secteur « {sector} » n'a encore de fondamentaux rafraichis - "
             "rafraichis-en d'autres pour enrichir la comparaison."
         )
     else:
+
+        def _avg(values: list[float]) -> float | None:
+            return round(sum(values) / len(values), 4) if values else None
+
         pe_values = [p.trailing_pe for p in peers if p.trailing_pe is not None]
         yield_values = [p.dividend_yield for p in peers if p.dividend_yield is not None]
         cap_values = [p.market_cap for p in peers if p.market_cap is not None]
+        roe_values = [p.return_on_equity for p in peers if p.return_on_equity is not None]
+        de_values = [p.debt_to_equity for p in peers if p.debt_to_equity is not None]
+        margin_values = [p.profit_margin for p in peers if p.profit_margin is not None]
+        pb_values = [p.price_to_book for p in peers if p.price_to_book is not None]
+        ev_ebitda_values = [p.ev_to_ebitda for p in peers if p.ev_to_ebitda is not None]
         peer_avg = SectorPeerAverage(
             sector=sector,
             peer_count=len(peers),
-            avg_trailing_pe=round(sum(pe_values) / len(pe_values), 2) if pe_values else None,
-            avg_dividend_yield=round(sum(yield_values) / len(yield_values), 2) if yield_values else None,
+            avg_trailing_pe=_avg(pe_values),
+            avg_dividend_yield=_avg(yield_values),
             avg_market_cap=round(sum(cap_values) / len(cap_values), 0) if cap_values else None,
+            avg_return_on_equity=_avg(roe_values),
+            avg_debt_to_equity=_avg(de_values),
+            avg_profit_margin=_avg(margin_values),
+            avg_price_to_book=_avg(pb_values),
+            avg_ev_to_ebitda=_avg(ev_ebitda_values),
         )
+        # 13/08/2026 : liste des pairs INDIVIDUELS (pas seulement la moyenne) -
+        # demande explicite de l'utilisateur. `p.asset` deja charge en eager
+        # (lazy="joined", voir fundamentals_models.py) - pas de requete
+        # supplementaire par pair.
+        peer_list = [
+            SectorPeerRead(
+                asset_id=p.asset_id,
+                ticker=p.asset.ticker,
+                name=p.asset.name,
+                trailing_pe=p.trailing_pe,
+                dividend_yield=p.dividend_yield,
+                market_cap=p.market_cap,
+                return_on_equity=p.return_on_equity,
+                debt_to_equity=p.debt_to_equity,
+                profit_margin=p.profit_margin,
+                price_to_book=p.price_to_book,
+                ev_to_ebitda=p.ev_to_ebitda,
+            )
+            for p in sorted(peers, key=lambda p: p.asset.ticker)
+        ]
         note = f"Comparaison basee sur {len(peers)} autre(s) actif(s) suivi(s) du secteur « {sector} » (fondamentaux deja rafraichis)."
 
     return SectorComparisonRead(
@@ -240,6 +287,7 @@ async def get_sector_comparison(db: AsyncSession, asset_id: uuid.UUID) -> Sector
         this_dividend_yield=fundamentals.dividend_yield if fundamentals else None,
         this_market_cap=fundamentals.market_cap if fundamentals else None,
         peers=peer_avg,
+        peer_list=peer_list,
         note=note,
     )
 

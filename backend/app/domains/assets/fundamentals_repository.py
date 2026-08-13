@@ -41,6 +41,11 @@ async def upsert(
     week52_high: float | None,
     beta: float | None,
     business_summary: str | None,
+    return_on_equity: float | None = None,
+    debt_to_equity: float | None = None,
+    profit_margin: float | None = None,
+    price_to_book: float | None = None,
+    ev_to_ebitda: float | None = None,
 ) -> AssetFundamentals:
     existing = await get_by_asset(db, asset_id)
     if existing is None:
@@ -56,6 +61,11 @@ async def upsert(
     existing.week52_low = week52_low
     existing.week52_high = week52_high
     existing.beta = beta
+    existing.return_on_equity = return_on_equity
+    existing.debt_to_equity = debt_to_equity
+    existing.profit_margin = profit_margin
+    existing.price_to_book = price_to_book
+    existing.ev_to_ebitda = ev_to_ebitda
     existing.business_summary = business_summary
 
     await db.commit()

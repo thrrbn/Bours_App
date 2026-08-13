@@ -1,14 +1,7 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel
-
-
-class BacktestRunCreate(BaseModel):
-    engine_version: str
-    period_start: date
-    period_end: date
-    asset_ids: list[uuid.UUID]
 
 
 class SmaParamsOverride(BaseModel):
@@ -44,6 +37,57 @@ class DecisionParamsOverride(BaseModel):
     min_confidence: float = 30.0
 
 
+class RsiParamsOverride(BaseModel):
+    """
+    Laboratoire de parametres (13/08/2026, voir kernc_engine.py::RsiStrategy) :
+    periode du RSI et seuils de survente/surachat, testables par run sans
+    toucher au code. Defauts identiques a la convention usuelle (14/30/70).
+    """
+
+    period: int = 14
+    oversold: float = 30.0
+    overbought: float = 70.0
+
+
+class MacdParamsOverride(BaseModel):
+    """
+    Laboratoire de parametres (13/08/2026, voir kernc_engine.py::MacdStrategy) :
+    fenetres rapide/lente de la ligne MACD et fenetre de la ligne de signal.
+    Defauts identiques a la convention usuelle (12/26/9).
+    """
+
+    fast: int = 12
+    slow: int = 26
+    signal: int = 9
+
+
+class BollingerParamsOverride(BaseModel):
+    """
+    Laboratoire de parametres (13/08/2026, voir kernc_engine.py::BollingerStrategy) :
+    periode de la moyenne mobile et largeur des bandes en ecarts-types.
+    Defauts identiques a la convention usuelle (20/2.0).
+    """
+
+    period: int = 20
+    num_std: float = 2.0
+
+
+class BacktestRunCreate(BaseModel):
+    """
+    01/08/2026 : decision_params optionnel (voir DecisionParamsOverride
+    ci-dessus et service.py::run_backtest_for_asset) - laboratoire de
+    parametres etendu au moteur interne, meme principe que
+    BacktestKerncRunCreate ci-dessous. Omis, comportement identique a avant
+    (final_signal deja stocke, inchange).
+    """
+
+    engine_version: str
+    period_start: date
+    period_end: date
+    asset_ids: list[uuid.UUID]
+    decision_params: DecisionParamsOverride | None = None
+
+
 class BacktestKerncRunCreate(BaseModel):
     """
     Bug reel trouve le 31/07/2026 : POST /run-kernc reutilisait BacktestRunCreate,
@@ -52,10 +96,10 @@ class BacktestKerncRunCreate(BaseModel):
     (f"backtesting.py-{version installee}", voir router.py), le client n'a pas
     a le fournir. Schema dedie, sans ce champ.
 
-    sma_params / decision_params (31/07/2026) : optionnels, permettent de
-    tester des variantes de parametres (voir SmaParamsOverride/
-    DecisionParamsOverride ci-dessus) - omis, le comportement est identique
-    a avant (fenetres SMA 10/20, seuils de decision par defaut).
+    sma_params / decision_params (31/07/2026) et rsi_params / macd_params /
+    bollinger_params (13/08/2026) : tous optionnels, permettent de tester des
+    variantes de parametres (voir les schemas *Override ci-dessus) - omis, le
+    comportement est identique aux defauts de chaque strategie.
     """
 
     period_start: date
@@ -63,6 +107,9 @@ class BacktestKerncRunCreate(BaseModel):
     asset_ids: list[uuid.UUID]
     sma_params: SmaParamsOverride | None = None
     decision_params: DecisionParamsOverride | None = None
+    rsi_params: RsiParamsOverride | None = None
+    macd_params: MacdParamsOverride | None = None
+    bollinger_params: BollingerParamsOverride | None = None
 
 
 class BacktestResultRead(BaseModel):
@@ -87,3 +134,33 @@ class BacktestResultRead(BaseModel):
     # kernc_engine.py::_render_plot_html) - None pour "internal_rules" et
     # pour tout run anterieur a cet ajout.
     plot_html: str | None = None
+
+
+class StrategyWindowStats(BaseModel):
+    count: int
+    avg_win_rate: float | None
+    avg_return_pct: float | None
+
+
+class StrategyScorecardRow(BaseModel):
+    """
+    13/08/2026 (scorecard de fiabilite par strategie, voir
+    jobs/evaluate_strategies_job.py) : une ligne = une strategie (+horizon
+    pour signal_replay/internal_rules, "n/a" sinon - meme convention que
+    ParamsLabPanel.vue::resultKey), avec ses stats agregees sur chaque
+    fenetre glissante (voir service.py::SCORECARD_WINDOWS).
+    """
+
+    strategy_name: str
+    horizon: str
+    windows: dict[str, StrategyWindowStats]
+
+
+class StrategyScorecardRead(BaseModel):
+    results: list[StrategyScorecardRow]
+    last_evaluated_at: datetime | None
+    disclaimer: str = (
+        "Moyennes calculees UNIQUEMENT sur les runs automatiques hebdomadaires (parametres par defaut, "
+        "positions du portefeuille virtuel) - jamais sur tes tests manuels. Mesure la performance passee "
+        "de chaque strategie sur les actifs suivis, jamais une prediction ni une recommandation."
+    )

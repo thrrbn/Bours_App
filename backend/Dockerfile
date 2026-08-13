@@ -32,4 +32,9 @@ EXPOSE 8000
 
 # --reload est pertinent ici car le compose monte ./backend:/app en volume
 # (voir docker-compose.yml) : le code modifie en local est rechargeable a chaud.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+#
+# 01/08/2026 : demarrage via entrypoint.sh (applique "alembic upgrade head"
+# avant uvicorn) plutot qu'un CMD direct - voir entrypoint.sh pour le detail.
+# "sh entrypoint.sh" plutot que "./entrypoint.sh" : n'exige pas le bit
+# executable, qui peut se perdre lors d'une copie depuis Windows.
+CMD ["sh", "entrypoint.sh"]
