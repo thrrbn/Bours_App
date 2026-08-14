@@ -160,7 +160,9 @@ class StrategyScorecardRead(BaseModel):
     results: list[StrategyScorecardRow]
     last_evaluated_at: datetime | None
     disclaimer: str = (
-        "Moyennes calculees UNIQUEMENT sur les runs automatiques hebdomadaires (parametres par defaut, "
-        "positions du portefeuille virtuel) - jamais sur tes tests manuels. Mesure la performance passee "
-        "de chaque strategie sur les actifs suivis, jamais une prediction ni une recommandation."
+        "Moyennes calculees UNIQUEMENT sur les runs automatiques hebdomadaires (parametres par defaut et "
+        "profils predefinis prudent/agressif, positions du portefeuille virtuel) - jamais sur tes tests "
+        "manuels. Chaque profil est reevalue chaque semaine sur les donnees les plus recentes, jamais "
+        "optimise une seule fois sur une periode deja connue. Mesure la performance passee de chaque "
+        "strategie sur les actifs suivis, jamais une prediction ni une recommandation."
     )

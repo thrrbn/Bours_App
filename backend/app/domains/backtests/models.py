@@ -22,7 +22,12 @@ class BacktestRun(Base):
     # au scorecard de fiabilite par strategie de n'agreger QUE des runs
     # comparables entre eux (memes parametres, cadence reguliere), sans
     # melanger avec les tests ad-hoc de l'utilisateur.
-    run_kind: Mapped[str] = mapped_column(String(20), nullable=False, server_default="manual")
+    # 14/08/2026 : String(20) etait trop court pour "scheduled_strategy_eval"
+    # (23 caracteres) - la valeur ecrite par jobs/evaluate_strategies_job.py
+    # depassait la colonne et faisait echouer CHAQUE run planifie des le
+    # premier create_run() (StringDataRightTruncationError), bug reel trouve
+    # en testant le job manuellement pour la premiere fois.
+    run_kind: Mapped[str] = mapped_column(String(30), nullable=False, server_default="manual")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

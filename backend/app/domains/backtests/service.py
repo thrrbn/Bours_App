@@ -238,9 +238,14 @@ async def run_backtest_for_asset(
 # ---------------------------------------------------------------------------
 # Scorecard de fiabilite par strategie (13/08/2026, voir
 # jobs/evaluate_strategies_job.py) - agrege UNIQUEMENT les runs automatiques
-# hebdomadaires (run_kind="scheduled_strategy_eval", parametres par defaut),
-# jamais les tests ad-hoc de l'utilisateur (ParamsLabPanel.vue) dont les
-# parametres varient volontairement d'un test a l'autre.
+# hebdomadaires (run_kind="scheduled_strategy_eval", parametres par defaut ET
+# profils predefinis prudent/agressif pour internal_rules/signal_replay -
+# voir DECISION_PROFILES, 14/08/2026), jamais les tests ad-hoc de
+# l'utilisateur (ParamsLabPanel.vue) dont les parametres varient
+# volontairement d'un test a l'autre. Chaque profil apparait comme une ligne
+# distincte (strategy_name suffixe "::profil") - le classement par fenetre
+# deja affiche dans SignalReliabilityView.vue sert directement a comparer
+# quel profil a le mieux performe dans la duree.
 # ---------------------------------------------------------------------------
 
 SCORECARD_WINDOWS = {"90d": 90, "365d": 365, "all": None}

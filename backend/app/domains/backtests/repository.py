@@ -91,8 +91,12 @@ async def get_scheduled_results(db: AsyncSession, since=None) -> list[BacktestRe
     AUTOMATIQUES uniquement (run_kind="scheduled_strategy_eval", voir
     jobs/evaluate_strategies_job.py) - jamais des tests ad-hoc de
     l'utilisateur (parametres variables d'un test a l'autre, inutilisables
-    pour une moyenne). `since` optionnel filtre sur BacktestRun.created_at
-    (la date du RUN, pas du resultat individuel) pour les fenetres glissantes.
+    pour une moyenne). Inclut, depuis le 14/08/2026, les profils predefinis
+    prudent/agressif en plus du profil par defaut (strategy_name suffixe,
+    voir DECISION_PROFILES) - ce sont toujours des parametres FIXES reevalues
+    chaque semaine, pas des tests ponctuels de l'utilisateur. `since`
+    optionnel filtre sur BacktestRun.created_at (la date du RUN, pas du
+    resultat individuel) pour les fenetres glissantes.
     """
     stmt = (
         select(BacktestResult)

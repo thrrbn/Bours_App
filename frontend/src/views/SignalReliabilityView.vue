@@ -38,15 +38,30 @@ function fmtDate(iso) {
 const STRATEGY_WINDOW_LABELS = { "90d": "90 derniers jours", "365d": "12 derniers mois", all: "Tout l'historique" };
 const STRATEGY_WINDOW_ORDER = ["90d", "365d", "all"];
 
+// 14/08/2026 : internal_rules et signal_replay sont desormais aussi
+// evalues chaque semaine avec 2 profils de decision predefinis en plus du
+// profil par defaut (voir backend/app/jobs/evaluate_strategies_job.py::
+// DECISION_PROFILES) - le backend suffixe strategy_name ("internal_rules::
+// prudent") pour que chaque profil reste une ligne distincte et comparable
+// dans le classement ci-dessous, plutot que d'ajouter une dimension separee
+// au tableau.
+const BASE_STRATEGY_LABELS = {
+  internal_rules: "Moteur interne (regles)",
+  signal_replay: "Nos signaux (signal_replay)",
+  sma_cross: "Croisement SMA",
+  rsi_mean_reversion: "RSI",
+  macd_cross: "MACD",
+  bollinger_reversion: "Bollinger",
+  buy_and_hold: "Buy & hold",
+};
+
+const PROFILE_LABELS = { prudent: "profil prudent", agressif: "profil agressif" };
+
 function strategyLabel(name) {
-  if (name === "internal_rules") return "Moteur interne (regles)";
-  if (name === "signal_replay") return "Nos signaux (signal_replay)";
-  if (name === "sma_cross") return "Croisement SMA";
-  if (name === "rsi_mean_reversion") return "RSI";
-  if (name === "macd_cross") return "MACD";
-  if (name === "bollinger_reversion") return "Bollinger";
-  if (name === "buy_and_hold") return "Buy & hold";
-  return name || "n/d";
+  if (!name) return "n/d";
+  const [base, profile] = name.split("::");
+  const baseLabel = BASE_STRATEGY_LABELS[base] || base;
+  return profile ? `${baseLabel} - ${PROFILE_LABELS[profile] || profile}` : baseLabel;
 }
 
 function fmtWinRate(stats) {
@@ -135,7 +150,10 @@ const sortedStrategyResults = computed(() => {
       interne) est rejouee automatiquement chaque semaine avec ses parametres par defaut, sur les positions du
       portefeuille virtuel - pour arbitrer entre strategies sur leur tendance dans la duree, plutot que de juger
       sur un seul test ponctuel (voir "tester les parametres" sur une position pour ce test ponctuel, qui affiche
-      desormais aussi ce meme historique en contexte).
+      desormais aussi ce meme historique en contexte). Le moteur interne et nos signaux sont en plus rejoues avec
+      2 profils de decision predefinis (prudent, agressif) en plus du profil par defaut - classe-les par fenetre
+      ci-dessous pour voir lequel a le mieux performe dans la duree, sans jamais optimiser sur une periode deja
+      connue.
     </p>
 
     <p v-if="strategyStore.isLoading" class="text-sm text-gray-500">Chargement...</p>

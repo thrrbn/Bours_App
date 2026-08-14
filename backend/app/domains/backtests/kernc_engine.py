@@ -55,6 +55,7 @@ modifier le moteur de signal reel affiche au quotidien. Deux leviers :
   seule la ponderation/le seuillage de decision est testable pour l'instant.
 """
 import logging
+import math
 import os
 import tempfile
 import uuid
@@ -138,7 +139,14 @@ _EXTRA_STATS_KEYS = (
 def _num(stats: "pd.Series", key: str) -> float | None:
     """Extrait un scalaire numerique d'une Stats de backtesting.py, en geran
     proprement l'absence de cle et les NaN (ex: Sharpe indefini si aucun
-    trade) - jamais d'exception, juste None."""
+    trade) - jamais d'exception, juste None.
+
+    Bug reel trouve le 14/08/2026 en testant evaluate_strategies_job pour la
+    premiere fois : Profit Factor (et d'autres ratios) valent +inf des qu'il
+    n'y a aucune perte (division par zero) - Python serialise ca en JSON par
+    le litteral "Infinity", que Postgres JSONB rejette (InvalidTextRepresentationError,
+    JSON strict n'admet pas Infinity/-Infinity/NaN). math.isinf() ci-dessous
+    exclut ces valeurs de la meme facon que pd.isna() exclut deja les NaN."""
     if key not in stats:
         return None
     value = stats[key]
@@ -150,9 +158,10 @@ def _num(stats: "pd.Series", key: str) -> float | None:
     if hasattr(value, "total_seconds"):  # pandas Timedelta (durees de drawdown/trade)
         return round(value.total_seconds() / 86400, 2)  # en jours
     try:
-        return float(value)
+        result = float(value)
     except (TypeError, ValueError):
         return None
+    return None if math.isinf(result) else result
 
 
 def _stats_to_extra_metrics(stats: "pd.Series") -> dict:
