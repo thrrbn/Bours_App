@@ -8,6 +8,7 @@ Assistant d'analyse boursière pour investisseurs particuliers en Belgique : sco
 - **`LEARNING_PATH.md`** — parcours pédagogique par modules progressifs pour reconstruire le projet vous-même, dans le même esprit que votre formation GMAO.
 - **`backend/`** — code Python exécutable (FastAPI, SQLAlchemy, moteur de score, NLP, jobs planifiés). Couvert par des tests unitaires (`backend/tests/`), tous vérifiés fonctionnels.
 - **`frontend/`** — squelette Vue 3 + Vite + Pinia + Tailwind (recherche d'actif, dashboard de signal, historique).
+- **`DEPLOIEMENT_NAS_ASUSTOR.md`** — mise à jour de l'instance NAS (`git pull` + `deploy.sh`/`deploy.ps1`, migrations Alembic, dépannage) : ce dossier de dev fait push/pull complet, le NAS ne fait que du pull via une deploy key GitHub en lecture seule.
 
 ## Démarrage rapide (MVP local)
 
