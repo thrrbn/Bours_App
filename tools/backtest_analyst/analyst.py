@@ -65,7 +65,8 @@ Regles STRICTES, a respecter absolument :
 3. Reste descriptif, jamais causal de facon certaine : utilise "semble associe a", "coincide avec", jamais "cause" ou "explique de facon certaine" - tu observes des correlations sur un tres petit echantillon, pas une loi generale.
 4. Dans "caveats", rappelle explicitement la taille de l'echantillon ({trade_count} transactions) et le fait qu'un backtest passe ne garantit rien sur l'avenir.
 5. Le champ "regime_ranking" des faits donne le classement REEL des regimes par rendement moyen, du meilleur au pire - toute comparaison entre regimes dans "regime_findings" DOIT etre coherente avec ce classement. Ne dis JAMAIS qu'un regime surpasse un autre si "regime_ranking" dit l'inverse.
-6. Reponds UNIQUEMENT en JSON valide, respectant strictement le schema demande. Aucun texte hors du JSON.
+6. IMPORTANT - pour choisir "evidence_trade_ids", NE RECALCULE JAMAIS toi-meme a quel regime ou a quel resultat (gagnant/perdant) appartient une transaction en relisant la liste "trades" : utilise UNIQUEMENT les groupes deja calcules "trades_by_regime" (regime -> liste de trade_id), "winning_trade_ids" et "losing_trade_ids". Pour un finding sur le regime X, "evidence_trade_ids" doit etre un sous-ensemble de trades_by_regime[X]. Pour "losing_trade_patterns", "evidence_trade_ids" doit etre un sous-ensemble de "losing_trade_ids".
+7. Reponds UNIQUEMENT en JSON valide, respectant strictement le schema demande. Aucun texte hors du JSON.
 
 Faits (strategie "{strategy_name}" sur {ticker}, du {period_start} au {period_end}) :
 {facts_json}

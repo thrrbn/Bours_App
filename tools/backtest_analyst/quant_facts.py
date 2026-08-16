@@ -219,6 +219,28 @@ def build_facts(price_df: pd.DataFrame, trades: pd.DataFrame, equity_curve: pd.D
     trade_index = build_trade_index(trades, regimes)
     regime_perf = regime_performance(trade_index)
 
+    # 14/08/2026 : regroupements PRE-CALCULES (trades_by_regime, winning/
+    # losing_trade_ids) - ajoutes apres un second cas reel observe avec
+    # llama3.1 sur ABI.BR : le modele avait cette fois bien identifie le
+    # bon regime le plus/moins performant (l'instruction de classement a
+    # fonctionne), mais avait cite en preuve une transaction du MAUVAIS
+    # regime (ex. #6 cite pour "moyenne" alors qu'elle appartient a
+    # "elevee") - une erreur de RE-DERIVATION du regime de chaque
+    # transaction a partir de la liste brute "trades", pas un probleme de
+    # classement en soi. Fournir ces groupes deja calcules retire au modele
+    # la tache ou il se trompait (parcourir "trades" et retrouver quel
+    # regime correspond a quel trade_id) - ca REDUIT fortement le risque
+    # sans le supprimer completement (un LLM peut toujours ignorer une
+    # instruction) : `analyst.py::_validate_citations` reste le filet de
+    # securite qui detecte les cas restants.
+    trades_by_regime = {
+        regime: [t["trade_id"] for t in trade_index.to_dict(orient="records") if t["regime"] == regime]
+        for regime in REGIME_LABELS
+        if regime_perf.get(regime, {}).get("count", 0) > 0
+    }
+    winning_trade_ids = [t["trade_id"] for t in trade_index.to_dict(orient="records") if t["is_win"]]
+    losing_trade_ids = [t["trade_id"] for t in trade_index.to_dict(orient="records") if not t["is_win"]]
+
     return {
         "sign_conventions": (
             "Dans 'aggregate_stats', les pourcentages de perte (ex. 'Max. Drawdown [%]') sont NEGATIFS "
@@ -230,6 +252,9 @@ def build_facts(price_df: pd.DataFrame, trades: pd.DataFrame, equity_curve: pd.D
         "trades": trade_index.to_dict(orient="records"),
         "regime_performance": regime_perf,
         "regime_ranking": rank_regimes_by_performance(regime_perf),
+        "trades_by_regime": trades_by_regime,
+        "winning_trade_ids": winning_trade_ids,
+        "losing_trade_ids": losing_trade_ids,
         "losing_trades_profile": characterize_losing_trades(trade_index),
         "top_drawdown_periods": top_drawdown_periods(equity_curve),
     }
