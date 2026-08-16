@@ -10,11 +10,19 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import date
+from pathlib import Path
+
+# Client API en lecture seule FACTORISE (14/08/2026, voir
+# docs/19-outils-pc-autonomes.md) - partage avec tout futur outil autonome
+# de tools/, plutot que copie ici. Bootstrap sys.path avant l'import car ce
+# script est lance directement (`python cli.py`, pas un package installe) -
+# meme convention que le reste de cet outil (imports plats, voir README.md).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "shared"))
 
 from analyst import analyze
-from api_client import ApiClientError, BourseApiClient
 from backtest_runner import BacktestRunnerError, run_local_backtest
 from llm_provider import LLMProviderError, OllamaProvider
+from nas_api_client import ApiClientError, BourseApiClient
 from quant_facts import build_facts
 from strategies import SUPPORTED_STRATEGIES
 

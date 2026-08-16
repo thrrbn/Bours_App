@@ -66,7 +66,7 @@ Le premier appel pour une combinaison donnée (mêmes faits + même modèle) int
 |---|---|
 | `llm_provider.py` | Interface abstraite + `OllamaProvider` (appel HTTP local, mode JSON, température 0) + `MockProvider` (tests sans Ollama) + cache disque. |
 | `strategies.py` | Copie volontaire des stratégies pures de `kernc_engine.py` — pas d'import direct pour éviter toute dépendance à la config du backend (voir commentaire en tête de fichier). |
-| `api_client.py` | Client HTTP en lecture seule vers l'API du NAS (résolution de ticker, historique de prix). |
+| `../shared/nas_api_client.py` | Client HTTP en lecture seule vers l'API du NAS (résolution de ticker, historique de prix) — **factorisé** dans `tools/shared/` (voir `docs/19-outils-pc-autonomes.md`), partagé avec tout futur outil autonome de ce genre. |
 | `backtest_runner.py` | Rejoue le backtest en local pour accéder aux transactions individuelles et à la courbe de capital (données que l'app ne persiste pas). |
 | `quant_facts.py` | Tous les calculs statistiques purs, sans LLM — segmentation par régime, caractérisation des pertes, pires épisodes de repli. |
 | `analyst.py` | Construit le prompt, appelle le LLM, valide les citations, génère le rapport Markdown final. |

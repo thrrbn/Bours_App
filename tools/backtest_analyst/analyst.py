@@ -21,7 +21,12 @@ RESPONSE_SCHEMA = {
     "properties": {
         "summary": {
             "type": "string",
-            "description": "2-4 phrases resumant le comportement general de la strategie sur cette periode.",
+            "description": (
+                "2-4 phrases SUBSTANTIELLES (jamais une reformulation du titre/de la periode - voir regle 8) : "
+                "doit mentionner le rendement total obtenu (aggregate_stats), le compare au rendement buy-and-hold "
+                "si disponible, nomme le regime le plus et le moins performant (regime_ranking) avec leurs "
+                "rendements moyens, et cite l'ampleur du pire episode de repli (top_drawdown_periods)."
+            ),
         },
         "regime_findings": {
             "type": "array",
@@ -67,6 +72,7 @@ Regles STRICTES, a respecter absolument :
 5. Le champ "regime_ranking" des faits donne le classement REEL des regimes par rendement moyen, du meilleur au pire - toute comparaison entre regimes dans "regime_findings" DOIT etre coherente avec ce classement. Ne dis JAMAIS qu'un regime surpasse un autre si "regime_ranking" dit l'inverse.
 6. IMPORTANT - pour choisir "evidence_trade_ids", NE RECALCULE JAMAIS toi-meme a quel regime ou a quel resultat (gagnant/perdant) appartient une transaction en relisant la liste "trades" : utilise UNIQUEMENT les groupes deja calcules "trades_by_regime" (regime -> liste de trade_id), "winning_trade_ids" et "losing_trade_ids". Pour un finding sur le regime X, "evidence_trade_ids" doit etre un sous-ensemble de trades_by_regime[X]. Pour "losing_trade_patterns", "evidence_trade_ids" doit etre un sous-ensemble de "losing_trade_ids".
 7. Reponds UNIQUEMENT en JSON valide, respectant strictement le schema demande. Aucun texte hors du JSON.
+8. "summary" NE DOIT JAMAIS se contenter de reformuler le titre (ex. "Analyse de backtest de X sur Y du ... au ...") - c'est INTERDIT et sera considere comme un echec. "summary" DOIT contenir, en 2-4 phrases : (a) le rendement total obtenu, chiffre precis tire de "aggregate_stats" (cle "Return [%]"), compare au rendement buy-and-hold si "Buy & Hold Return [%]" est present ; (b) le nom du regime le PLUS performant et celui le MOINS performant d'apres "regime_ranking", avec leurs rendements moyens exacts ; (c) l'ampleur (en %) du pire episode de repli d'apres "top_drawdown_periods", en precisant s'il etait encore en cours a la fin de la periode (champ "end" a null).
 
 Faits (strategie "{strategy_name}" sur {ticker}, du {period_start} au {period_end}) :
 {facts_json}
@@ -153,6 +159,24 @@ def _validate_citations(llm_data: dict, facts: dict) -> list[str]:
                     )
 
     return warnings
+
+
+def _validate_summary(summary: str) -> list[str]:
+    """Detecte un resume "paresseux" (14/08/2026 - observe en usage reel
+    avec llama3.1 : "Analyse de backtest de la strategie 'sma_cross' sur
+    ABI.BR du 2025-01-01 au 2026-08-16", une pure reformulation du titre,
+    zero chiffre). L'instruction du prompt (regle 8) demande explicitement
+    des chiffres precis - ce garde-fou verifie mecaniquement qu'au moins un
+    signe "%" est present, sans essayer de comprendre le texte (impossible
+    de verifier l'EXACTITUDE des chiffres cites sans reparser le langage
+    naturel - seule leur PRESENCE est verifiee ici, contrairement aux
+    citations de trade_id qui elles sont entierement verifiables)."""
+    if "%" not in summary:
+        return [
+            "Le resume ('summary') ne cite aucun pourcentage alors que la consigne l'exige explicitement "
+            "(rendement, regime, drawdown) - probablement un resume generique peu informatif, a lire avec prudence."
+        ]
+    return []
 
 
 def render_markdown(
@@ -264,6 +288,7 @@ def analyze(
     prompt = build_prompt(strategy_name, ticker, period_start, period_end, facts)
     response = provider.complete(prompt, json_schema=RESPONSE_SCHEMA, use_cache=use_cache)
     citation_warnings = _validate_citations(response.data, facts)
+    citation_warnings += _validate_summary(response.data.get("summary", ""))
 
     markdown = render_markdown(
         strategy_name,

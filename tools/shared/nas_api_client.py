@@ -1,20 +1,26 @@
 """
 Client HTTP en LECTURE SEULE vers l'API publique de Bourse Assistant
-(14/08/2026) - jamais d'ecriture, jamais d'acces direct a la base Postgres
-du NAS (voir README.md : "outil autonome, aucun impact sur le NAS").
+(14/08/2026, factorise depuis tools/backtest_analyst/ le meme jour - voir
+docs/19-outils-pc-autonomes.md pour le principe general).
+
+Partage entre TOUS les outils autonomes PC/Mac de tools/ - jamais
+d'ecriture, jamais d'acces direct a la base Postgres du NAS. Chaque outil
+qui a besoin de lire des donnees deja suivies dans l'application (prix,
+tickers) doit passer par ce module plutot que de recopier son propre client
+HTTP - voir docs/19-outils-pc-autonomes.md, "contrat" section 2.
 
 Limite connue et documentee (a ne jamais oublier en lisant un rapport
-genere par cet outil) : l'endpoint public GET /market-data/{id}/prices
-n'expose PAS le cours ajuste des dividendes/splits (`adjusted_close`,
-colonne interne uniquement, voir backend/app/domains/market_data/schemas.py::
-PriceBarRead) - seul le cours brut `close` est disponible ici. Le moteur
-interne de l'application (kernc_engine.py::_load_price_dataframe) retraite
-Open/High/Low/Close par ce facteur d'ajustement avant de lancer
-backtesting.py ; cet outil ne le fait PAS. Consequence concrete : sur un
-titre versant des dividendes reguliers, les resultats calcules ici peuvent
-legerement differer de ceux affiches par "tester les parametres" dans
-l'application - un ecart de quelques % de rendement sur plusieurs annees
-n'est pas anormal, ce n'est pas un bug de cet outil.
+genere par un outil qui utilise ce client) : l'endpoint public
+GET /market-data/{id}/prices n'expose PAS le cours ajuste des dividendes/
+splits (`adjusted_close`, colonne interne uniquement, voir
+backend/app/domains/market_data/schemas.py::PriceBarRead) - seul le cours
+brut `close` est disponible ici. Le moteur interne de l'application
+(kernc_engine.py::_load_price_dataframe) retraite Open/High/Low/Close par
+ce facteur d'ajustement avant de lancer backtesting.py ; ce client ne le
+fait PAS. Consequence concrete : sur un titre versant des dividendes
+reguliers, un backtest local via ce client peut legerement differer de
+celui affiche par "tester les parametres" dans l'application - un ecart
+de quelques % de rendement sur plusieurs annees n'est pas anormal.
 """
 from __future__ import annotations
 
@@ -41,7 +47,8 @@ class BourseApiClient:
         except httpx.ConnectError as exc:
             raise ApiClientError(
                 f"Impossible de joindre l'API sur {self.base_url} - verifie l'URL et que le NAS est accessible "
-                f"depuis ce PC (meme reseau local, ou VPN)."
+                f"depuis ce PC (meme reseau local, ou VPN). Rappel : c'est le port du BACKEND (ex: 8082 sur un "
+                f"NAS deploye via docker-compose.yml), pas le port du site web (5174)."
             ) from exc
         except httpx.HTTPStatusError as exc:
             raise ApiClientError(f"Erreur HTTP {exc.response.status_code} sur {url}") from exc
@@ -50,7 +57,9 @@ class BourseApiClient:
     def resolve_ticker(self, ticker: str) -> dict:
         """Retourne le premier resultat de recherche correspondant a ce
         ticker parmi les actifs deja suivis dans l'application (ne fait PAS
-        de recherche live Yahoo Finance - l'actif doit deja etre suivi)."""
+        de recherche live Yahoo Finance - l'actif doit deja etre suivi,
+        voir GET /assets/lookup cote backend si un jour un outil a besoin
+        de la recherche live plutot que des actifs deja suivis)."""
         results = self._get("/assets/search", params={"q": ticker})
         if not results:
             raise ApiClientError(
@@ -76,3 +85,10 @@ class BourseApiClient:
         df = df.loc[str(period_start) : str(period_end)]
         df = df.rename(columns={"open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"})
         return df[["Open", "High", "Low", "Close", "Volume"]]
+
+    def list_tracked_assets(self, market: str | None = None, sector: str | None = None) -> list[dict]:
+        """Tous les actifs suivis (GET /assets), avec filtres optionnels -
+        utile a un futur outil qui doit parcourir tout ou partie de
+        l'univers suivi plutot qu'un seul ticker a la fois."""
+        params = {k: v for k, v in {"market": market, "sector": sector}.items() if v is not None}
+        return self._get("/assets", params=params or None)
