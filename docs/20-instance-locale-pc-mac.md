@@ -43,6 +43,8 @@ Les deux approches restent valides, pour des besoins differents :
 
 ## Installation (instance locale)
 
+Guide pas-à-pas avec les commandes exactes (Windows et macOS/Apple Silicon), y compris les pièges déjà rencontrés en pratique (conflits de port, variables d'environnement, `.env` mal formé) : voir `docs/21-guide-demarrage-analyste-ia.md`. Le résumé ci-dessous reste la référence pour comprendre les grandes étapes.
+
 Prerequis : avoir deja le depot clone, et suivre le "Demarrage rapide (MVP local)" du `README.md` principal (backend via `uvicorn`, frontend via `npm run dev`) - PAS le `docker-compose.yml` de deploiement NAS complet (qui n'expose pas ces variables).
 
 1. **Base de donnees locale.** Le plus simple : ne lancer QUE le service `db` du `docker-compose.yml` existant (`docker compose up -d db`, deja configure sur le port hote `5433`) plutot que d'installer un Postgres a part - ou utiliser un Postgres deja installe localement.

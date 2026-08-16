@@ -31,7 +31,7 @@ npm run dev
 
 L'API est documentée automatiquement sur `http://localhost:8000/docs` (36 endpoints au 25/07/2026, voir `docs/07-endpoints-fastapi.md` et `docs/STACK.md` pour le décompte à jour). Le frontend tourne sur `http://localhost:5173`.
 
-Pour activer la page "Analyste IA" (synthèse de backtest par un LLM local via Ollama, réservée à une instance locale PC/Mac) : voir `docs/20-instance-locale-pc-mac.md`.
+Pour activer la page "Analyste IA" (synthèse de backtest par un LLM local via Ollama, réservée à une instance locale PC/Mac) : voir `docs/20-instance-locale-pc-mac.md` (architecture) et `docs/21-guide-demarrage-analyste-ia.md` (guide pas-à-pas Windows/macOS).
 
 ⚠️ `alembic upgrade head` crée uniquement le schéma, jamais de données : sans l'appel à `/api/v1/maintenance/seed-bel20` ci-dessus, la table `assets` reste vide et l'application ne trouve aucun actif (`/api/v1/assets` renvoie `[]`). C'est le seul chemin de seed sur une base initialisée via Alembic — `db/migrations/004_bel20_seed.sql` ne joue automatiquement que sur un volume Postgres neuf (`docker-entrypoint-initdb.d`).
 
