@@ -6,9 +6,10 @@
 // explicatif et rien d'autre - meme garde-fou que le backend
 // (router.py::require_enabled), en double ici par prudence (l'utilisateur
 // pourrait arriver sur cette URL directement, ex. favori enregistre).
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import AssetAutocomplete from "../components/AssetAutocomplete.vue";
 import { useLlmAnalystStore } from "../stores/llmAnalyst";
+import { parseInline, parseMarkdownBlocks } from "../utils/markdownBlocks";
 
 const store = useLlmAnalystStore();
 
@@ -68,6 +69,12 @@ function statusClass(status) {
   if (status === "running") return "bg-amber-50 text-amber-700 border-amber-300";
   return "bg-gray-100 text-gray-500 border-gray-300";
 }
+
+// 16/08/2026 : rendu structure du rapport (voir markdownBlocks.js) plutot
+// qu'un <pre> brut - le tableau "Performance par regime de volatilite"
+// s'affichait auparavant en syntaxe pipe litterale (| a | b |) au lieu d'un
+// vrai tableau HTML.
+const reportBlocks = computed(() => parseMarkdownBlocks(store.job?.result?.markdown || ""));
 
 const STRATEGY_LABELS = {
   sma_cross: "Croisement de moyennes mobiles (SMA)",
@@ -169,7 +176,50 @@ const STRATEGY_LABELS = {
             </span>
           </div>
 
-          <pre class="whitespace-pre-wrap font-sans text-sm border-t pt-3 leading-relaxed">{{ store.job.result.markdown }}</pre>
+          <div class="border-t pt-3 space-y-2 text-sm">
+            <template v-for="(block, idx) in reportBlocks" :key="idx">
+              <h1 v-if="block.type === 'h1'" class="text-lg font-semibold mt-1">{{ block.text }}</h1>
+              <h2 v-else-if="block.type === 'h2'" class="text-base font-semibold mt-4">{{ block.text }}</h2>
+              <blockquote v-else-if="block.type === 'blockquote'" class="border-l-2 border-gray-300 pl-3 text-gray-500 italic">
+                {{ block.text }}
+              </blockquote>
+
+              <div v-else-if="block.type === 'table'" class="overflow-x-auto">
+                <table class="min-w-max text-xs border-collapse my-1">
+                  <thead>
+                    <tr>
+                      <th v-for="(h, hi) in block.header" :key="hi" class="border-b text-left py-1 pr-4 font-medium text-gray-500">
+                        {{ h }}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, ri) in block.rows" :key="ri" class="border-b border-gray-100">
+                      <td v-for="(cell, ci) in row" :key="ci" class="py-1 pr-4">{{ cell }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <ul v-else-if="block.type === 'list'" class="list-disc list-inside space-y-1">
+                <li v-for="(item, li) in block.items" :key="li">
+                  <span v-for="(seg, si) in parseInline(item)" :key="si">
+                    <strong v-if="seg.type === 'bold'">{{ seg.text }}</strong>
+                    <em v-else-if="seg.type === 'italic'" class="text-gray-400 not-italic text-xs">{{ seg.text }}</em>
+                    <template v-else>{{ seg.text }}</template>
+                  </span>
+                </li>
+              </ul>
+
+              <p v-else class="leading-relaxed">
+                <span v-for="(seg, si) in parseInline(block.text)" :key="si">
+                  <strong v-if="seg.type === 'bold'">{{ seg.text }}</strong>
+                  <em v-else-if="seg.type === 'italic'" class="text-gray-400 not-italic text-xs">{{ seg.text }}</em>
+                  <template v-else>{{ seg.text }}</template>
+                </span>
+              </p>
+            </template>
+          </div>
         </template>
       </div>
     </template>

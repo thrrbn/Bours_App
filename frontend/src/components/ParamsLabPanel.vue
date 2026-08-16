@@ -500,7 +500,14 @@ function resetToDefaults() {
          un resultat (strategie x horizon) par colonne - plus lisible que 24
          colonnes cote a cote. Survole le nom d'une metrique pour son explication. -->
     <div v-if="groupedResults.length" class="border rounded bg-white overflow-x-auto">
-      <table class="w-full text-xs">
+      <!-- 16/08/2026 : "w-full" forcait le tableau a rentrer dans la largeur
+           visible du conteneur (donc a comprimer/tronquer les colonnes des
+           qu'il y a plus de 2-3 strategies), empechant le defilement
+           horizontal pourtant deja pose sur le conteneur parent
+           (overflow-x-auto) de servir a quoi que ce soit - remplace par
+           "min-w-max" : le tableau garde sa largeur naturelle (autant de
+           colonnes que necessaire), c'est le conteneur qui defile. -->
+      <table class="min-w-max text-xs">
         <thead class="bg-gray-50 text-gray-500 uppercase">
           <tr>
             <th class="text-left px-2 py-1.5 sticky left-0 bg-gray-50">Metrique</th>

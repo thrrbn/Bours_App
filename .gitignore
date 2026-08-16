@@ -10,6 +10,12 @@ dist/
 # Artefacts Vite generes au demarrage (rebuild config a chaud)
 vite.config.js.timestamp-*.mjs
 
+# Cache disque des reponses LLM de l'analyste IA (16/08/2026, voir
+# backend/app/domains/llm_analyst/llm_provider.py - CACHE_DIR) - reponses
+# reelles generees en local, jamais a versionner (memes raisons que
+# tools/backtest_analyst/.cache/, deja exclu par son propre .gitignore).
+backend/.cache/
+
 # Cle de deploiement SSH du NAS (placee directement a la racine du repo cote
 # NAS plutot que dans ~/.ssh - jamais a suivre en git, meme par accident).
 bourse_app_nas_deploy
