@@ -34,9 +34,11 @@ Seulement les 5 stratégies auto-suffisantes (prix seuls, aucune donnée stocké
 ## Utilisation
 
 ```
-python cli.py --url http://<ip-du-nas>:8000 --ticker MC.PA \
+python cli.py --url http://<ip-du-nas>:8082 --ticker MC.PA \
     --strategy rsi_mean_reversion --start 2025-01-01 --end 2026-08-01
 ```
+
+Le port `8082` est celui exposé par le NAS (voir `docker-compose.yml` — le conteneur backend écoute en interne sur 8000, mappé sur 8082 côté hôte).
 
 Options utiles :
 - `--model` : modèle Ollama à utiliser (défaut `llama3.1`).

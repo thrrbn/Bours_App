@@ -2,7 +2,7 @@
 Point d'entree en ligne de commande (14/08/2026). Usage : voir README.md.
 
 Exemple :
-    python cli.py --url http://192.168.1.50:8000 --ticker MC.PA \\
+    python cli.py --url http://192.168.1.50:8082 --ticker MC.PA \\
         --strategy rsi_mean_reversion --start 2025-01-01 --end 2026-08-01
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ def main() -> int:
         description="Analyste LLM local (Ollama) pour un backtest de Bourse Assistant - outil autonome, "
         "ne modifie jamais l'application ni le NAS (voir README.md)."
     )
-    parser.add_argument("--url", required=True, help="URL de base de l'API (ex: http://192.168.1.50:8000)")
+    parser.add_argument("--url", required=True, help="URL de base de l'API (ex: http://192.168.1.50:8082 - port expose par le NAS, voir docker-compose.yml)")
     parser.add_argument("--ticker", required=True, help="Ticker deja suivi dans l'application (ex: MC.PA)")
     parser.add_argument("--strategy", required=True, choices=SUPPORTED_STRATEGIES)
     parser.add_argument("--start", required=True, help="Date de debut (AAAA-MM-JJ)")
