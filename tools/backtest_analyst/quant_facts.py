@@ -100,6 +100,28 @@ def regime_performance(trade_index: pd.DataFrame) -> dict:
     return result
 
 
+def rank_regimes_by_performance(regime_perf: dict) -> list[dict]:
+    """Classement CALCULE (jamais genere par le LLM) des regimes par
+    rendement moyen - ajoute le 14/08/2026 apres avoir observe en usage reel
+    qu'un modele Ollama (llama3.1) peut citer des transactions reelles tout
+    en tirant une conclusion comparative FAUSSE sur leur regroupement (ex.
+    affirmer qu'un regime "sous-performe" un autre alors que les chiffres
+    disent l'inverse) - la validation des citations (analyst.py) ne peut pas
+    detecter ce type d'erreur (les trade_id cites existent bel et bien).
+    Ce classement objectif est affiche dans le rapport a cote du recit du
+    LLM, pour qu'une conclusion erronee saute aux yeux immediatement plutot
+    que de rester cachee dans une phrase bien tournee. Exclut les regimes
+    sans transaction (rien a classer) ; les regimes a compte egal sont
+    departages par rendement moyen decroissant."""
+    ranked = [
+        {"regime": regime, **stats}
+        for regime, stats in regime_perf.items()
+        if stats["count"] > 0 and stats["avg_return_pct"] is not None
+    ]
+    ranked.sort(key=lambda r: r["avg_return_pct"], reverse=True)
+    return ranked
+
+
 def characterize_losing_trades(trade_index: pd.DataFrame) -> dict:
     """Compare les transactions perdantes aux gagnantes sur des attributs
     simples et objectifs (duree, jour de la semaine d'entree) - jamais une
@@ -195,6 +217,7 @@ def build_facts(price_df: pd.DataFrame, trades: pd.DataFrame, equity_curve: pd.D
     deja resumes."""
     regimes = compute_volatility_regimes(price_df)
     trade_index = build_trade_index(trades, regimes)
+    regime_perf = regime_performance(trade_index)
 
     return {
         "sign_conventions": (
@@ -205,7 +228,8 @@ def build_facts(price_df: pd.DataFrame, trades: pd.DataFrame, equity_curve: pd.D
         "aggregate_stats": stats,
         "trade_count": len(trade_index),
         "trades": trade_index.to_dict(orient="records"),
-        "regime_performance": regime_performance(trade_index),
+        "regime_performance": regime_perf,
+        "regime_ranking": rank_regimes_by_performance(regime_perf),
         "losing_trades_profile": characterize_losing_trades(trade_index),
         "top_drawdown_periods": top_drawdown_periods(equity_curve),
     }

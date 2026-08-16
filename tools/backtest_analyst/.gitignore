@@ -2,3 +2,4 @@
 *.md.out
 __pycache__/
 .venv/
+rapport.md
