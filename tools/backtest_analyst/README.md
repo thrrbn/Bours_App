@@ -26,10 +26,23 @@ Seulement les 5 stratégies auto-suffisantes (prix seuls, aucune donnée stocké
 
 1. Installer [Ollama](https://ollama.com) sur ton PC.
 2. Télécharger un modèle (ex. `ollama pull llama3.1` — compter ~4,7 Go, ou un modèle plus léger comme `ollama pull mistral` si ton PC a peu de RAM).
-3. Dans ce dossier :
+3. Dans ce dossier, dans un environnement virtuel dédié (recommandé, évite tout conflit avec d'autres installations Python sur ta machine - même principe que `backend/.venv` pour le backend) :
+
+   Windows (PowerShell) :
    ```
+   python -m venv .venv
+   .venv\Scripts\Activate.ps1
    pip install -r requirements.txt
    ```
+
+   macOS/Linux :
+   ```
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+   L'invite doit afficher `(.venv)` une fois activé. À chaque nouvelle session, réactiver l'environnement avant de relancer `cli.py` (`.venv\Scripts\Activate.ps1` sous Windows, ou `source .venv/bin/activate`) - pas besoin de refaire `pip install` à chaque fois.
 
 ## Utilisation
 
