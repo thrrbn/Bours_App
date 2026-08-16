@@ -28,18 +28,29 @@ RESPONSE_SCHEMA = {
                 "rendements moyens, et cite l'ampleur du pire episode de repli (top_drawdown_periods)."
             ),
         },
-        "regime_findings": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "claim": {"type": "string"},
-                    "regime": {"type": "string", "enum": ["faible", "moyenne", "elevee"]},
-                    "evidence_trade_ids": {"type": "array", "items": {"type": "integer"}},
-                },
-                "required": ["claim", "evidence_trade_ids"],
+        "best_regime_comment": {
+            "type": "object",
+            "properties": {
+                "claim": {"type": "string"},
+                "evidence_trade_ids": {"type": "array", "items": {"type": "integer"}},
             },
-            "description": "Observations liees aux regimes de volatilite (regime_performance dans les faits fournis).",
+            "required": ["claim", "evidence_trade_ids"],
+            "description": (
+                "Commentaire sur le regime le PLUS performant - CE REGIME EST DEJA DETERMINE (voir 'best_regime' "
+                "dans le prompt), tu ne le choisis pas, tu le commentes uniquement."
+            ),
+        },
+        "worst_regime_comment": {
+            "type": "object",
+            "properties": {
+                "claim": {"type": "string"},
+                "evidence_trade_ids": {"type": "array", "items": {"type": "integer"}},
+            },
+            "required": ["claim", "evidence_trade_ids"],
+            "description": (
+                "Commentaire sur le regime le MOINS performant - CE REGIME EST DEJA DETERMINE (voir 'worst_regime' "
+                "dans le prompt), tu ne le choisis pas, tu le commentes uniquement."
+            ),
         },
         "losing_trade_patterns": {
             "type": "array",
@@ -58,7 +69,7 @@ RESPONSE_SCHEMA = {
             "description": "Limites explicites de cette analyse (taille d'echantillon, correlation vs causalite, etc.).",
         },
     },
-    "required": ["summary", "regime_findings", "losing_trade_patterns", "caveats"],
+    "required": ["summary", "best_regime_comment", "worst_regime_comment", "losing_trade_patterns", "caveats"],
 }
 
 
@@ -66,13 +77,13 @@ PROMPT_TEMPLATE = """Tu es un assistant d'analyse de backtests financiers, dans 
 
 Regles STRICTES, a respecter absolument :
 1. N'utilise QUE les faits fournis ci-dessous au format JSON. N'invente aucun chiffre, aucune date, aucune transaction qui n'y figure pas.
-2. Chaque affirmation dans "regime_findings" et "losing_trade_patterns" DOIT citer au moins un `trade_id` reellement present dans la liste "trades" des faits fournis, dans le champ "evidence_trade_ids". Une affirmation sans preuve citee sera rejetee.
+2. Chaque affirmation ("best_regime_comment", "worst_regime_comment", "losing_trade_patterns") DOIT citer au moins un `trade_id` reellement present dans la liste "trades" des faits fournis, dans le champ "evidence_trade_ids". Une affirmation sans preuve citee sera rejetee.
 3. Reste descriptif, jamais causal de facon certaine : utilise "semble associe a", "coincide avec", jamais "cause" ou "explique de facon certaine" - tu observes des correlations sur un tres petit echantillon, pas une loi generale.
 4. Dans "caveats", rappelle explicitement la taille de l'echantillon ({trade_count} transactions) et le fait qu'un backtest passe ne garantit rien sur l'avenir.
-5. Le champ "regime_ranking" des faits donne le classement REEL des regimes par rendement moyen, du meilleur au pire - toute comparaison entre regimes dans "regime_findings" DOIT etre coherente avec ce classement. Ne dis JAMAIS qu'un regime surpasse un autre si "regime_ranking" dit l'inverse.
-6. IMPORTANT - pour choisir "evidence_trade_ids", NE RECALCULE JAMAIS toi-meme a quel regime ou a quel resultat (gagnant/perdant) appartient une transaction en relisant la liste "trades" : utilise UNIQUEMENT les groupes deja calcules "trades_by_regime" (regime -> liste de trade_id), "winning_trade_ids" et "losing_trade_ids". Pour un finding sur le regime X, "evidence_trade_ids" doit etre un sous-ensemble de trades_by_regime[X]. Pour "losing_trade_patterns", "evidence_trade_ids" doit etre un sous-ensemble de "losing_trade_ids".
+5. IMPORTANT (14/08/2026, corrige un echec reel observe) : le regime le PLUS performant est **"{best_regime}"** (rendement moyen {best_regime_return:+.2f}%) et le MOINS performant est **"{worst_regime}"** (rendement moyen {worst_regime_return:+.2f}%) - ces deux noms sont DEJA DETERMINES par calcul, tu ne les choisis pas et tu ne dois JAMAIS en mentionner un autre a leur place. "best_regime_comment" porte EXCLUSIVEMENT sur "{best_regime}", "worst_regime_comment" porte EXCLUSIVEMENT sur "{worst_regime}".
+6. IMPORTANT - pour choisir "evidence_trade_ids", NE RECALCULE JAMAIS toi-meme a quel regime ou a quel resultat (gagnant/perdant) appartient une transaction en relisant la liste "trades" : utilise UNIQUEMENT les groupes deja calcules "trades_by_regime" (regime -> liste de trade_id), "winning_trade_ids" et "losing_trade_ids". Pour "best_regime_comment", "evidence_trade_ids" doit etre un sous-ensemble de trades_by_regime["{best_regime}"]. Pour "worst_regime_comment", un sous-ensemble de trades_by_regime["{worst_regime}"]. Pour "losing_trade_patterns", un sous-ensemble de "losing_trade_ids".
 7. Reponds UNIQUEMENT en JSON valide, respectant strictement le schema demande. Aucun texte hors du JSON.
-8. "summary" NE DOIT JAMAIS se contenter de reformuler le titre (ex. "Analyse de backtest de X sur Y du ... au ...") - c'est INTERDIT et sera considere comme un echec. "summary" DOIT contenir, en 2-4 phrases : (a) le rendement total obtenu, chiffre precis tire de "aggregate_stats" (cle "Return [%]"), compare au rendement buy-and-hold si "Buy & Hold Return [%]" est present ; (b) le nom du regime le PLUS performant et celui le MOINS performant d'apres "regime_ranking", avec leurs rendements moyens exacts ; (c) l'ampleur (en %) du pire episode de repli d'apres "top_drawdown_periods", en precisant s'il etait encore en cours a la fin de la periode (champ "end" a null).
+8. "summary" NE DOIT JAMAIS se contenter de reformuler le titre (ex. "Analyse de backtest de X sur Y du ... au ...") - c'est INTERDIT et sera considere comme un echec. "summary" DOIT contenir, en 2-4 phrases : (a) le rendement total obtenu, chiffre precis tire de "aggregate_stats" (cle "Return [%]"), compare au rendement buy-and-hold si "Buy & Hold Return [%]" est present ; (b) "{best_regime}" comme regime le plus performant ({best_regime_return:+.2f}%) et "{worst_regime}" comme le moins performant ({worst_regime_return:+.2f}%) - ne cite JAMAIS un autre regime a leur place ; (c) l'ampleur (en %) du pire episode de repli d'apres "top_drawdown_periods", en precisant s'il etait encore en cours a la fin de la periode (champ "end" a null).
 
 Faits (strategie "{strategy_name}" sur {ticker}, du {period_start} au {period_end}) :
 {facts_json}
@@ -89,13 +100,41 @@ class AnalysisReport:
     low_sample_warning: bool
 
 
+def _best_worst_regime(facts: dict) -> tuple[dict, dict]:
+    """Determine par CODE (jamais par le LLM) quel regime est le meilleur et
+    lequel est le pire, a partir du classement deja calcule
+    `facts["regime_ranking"]` (trie du meilleur au pire, voir
+    `quant_facts.rank_regimes_by_performance`). 14/08/2026 : c'est le coeur
+    du correctif suite a un cas reel observe ou llama3.1 avait correctement
+    identifie le meilleur regime mais mal etiquete le pire (confondu avec un
+    troisieme regime intermediaire) - en retirant au modele la possibilite
+    de CHOISIR quel regime est "best"/"worst", cette classe d'erreur devient
+    structurellement impossible cote LLM (le garde-fou de validation reste
+    en place quand meme, au cas ou le modele l'ignorerait).
+
+    Cas limite : un seul regime avec des transactions -> best == worst (le
+    prompt le presentera comme tel, ce qui est correct). Aucun regime avec
+    de transactions (ne devrait pas arriver si trade_count > 0) -> regime a
+    None, gere par les appelants."""
+    ranking = facts.get("regime_ranking") or []
+    if not ranking:
+        empty = {"regime": None, "avg_return_pct": None, "count": 0}
+        return empty, empty
+    return ranking[0], ranking[-1]
+
+
 def build_prompt(strategy_name: str, ticker: str, period_start: date, period_end: date, facts: dict) -> str:
+    best, worst = _best_worst_regime(facts)
     return PROMPT_TEMPLATE.format(
         strategy_name=strategy_name,
         ticker=ticker,
         period_start=period_start,
         period_end=period_end,
         trade_count=facts["trade_count"],
+        best_regime=best["regime"] or "n/d",
+        best_regime_return=best["avg_return_pct"] or 0.0,
+        worst_regime=worst["regime"] or "n/d",
+        worst_regime_return=worst["avg_return_pct"] or 0.0,
         facts_json=json.dumps(facts, ensure_ascii=False, indent=2),
     )
 
@@ -106,57 +145,64 @@ def _validate_citations(llm_data: dict, facts: dict) -> list[str]:
     qui l'entoure est bien COHERENTE avec ce que dit ce trade precis - pas
     seulement qu'il existe.
 
-    14/08/2026 : les deux verifications de coherence ci-dessous
-    (`losing_trade_patterns` doit citer des PERDANTES, `regime_findings`
-    doit citer des transactions du regime annonce) ont ete ajoutees apres
-    un cas reel observe avec llama3.1 - le modele avait cite des
-    transactions parfaitement REELLES (aucun trade_id invente) tout en
-    tirant une conclusion comparative fausse sur leur regroupement par
-    regime. Ces verifications ne detectent pas CE cas precis (une
-    comparaison en texte libre entre deux regimes n'est pas une citation
-    fausse en soi), mais couvrent une famille d'erreurs proches et
-    verifiables : citer une transaction gagnante comme preuve d'un pattern
-    de pertes, ou une transaction d'un autre regime que celui annonce.
-    Voir aussi `render_markdown()` : le classement reel des regimes
-    (calcule, jamais genere par le LLM) est affiche a cote du recit pour
-    couvrir le cas non detectable ici."""
+    14/08/2026 : `best_regime_comment` et `worst_regime_comment` sont
+    desormais des champs FIXES dont le regime cible est determine par
+    `_best_worst_regime()` (code), plus un champ libre choisi par le LLM
+    (voir historique : le modele pouvait citer des transactions reelles du
+    bon regime tout en se trompant sur QUEL regime etait le "pire"). Cette
+    fonction verifie ici que chaque champ ne cite que des transactions
+    appartenant reellement au regime qui lui est assigne - un filet de
+    securite si le modele ignore quand meme la consigne. `losing_trade_patterns`
+    garde sa verification is_win inchangee."""
     valid_ids = {t["trade_id"] for t in facts["trades"]}
     trades_by_id = {t["trade_id"]: t for t in facts["trades"]}
-    warnings = []
+    trades_by_regime = facts.get("trades_by_regime", {})
+    warnings: list[str] = []
 
-    for section in ("regime_findings", "losing_trade_patterns"):
-        for item in llm_data.get(section, []):
-            cited = set(item.get("evidence_trade_ids", []))
-            invalid = cited - valid_ids
-            if invalid:
+    def _check_citations(section: str, item: dict, allowed_ids: set | None, regime_label: str | None) -> set:
+        cited = set(item.get("evidence_trade_ids", []))
+        invalid = cited - valid_ids
+        if invalid:
+            warnings.append(
+                f"Affirmation non verifiee dans '{section}' : cite les transactions {sorted(invalid)} "
+                f"qui n'existent pas dans les donnees fournies - claim : {item.get('claim', '')!r}"
+            )
+        if not cited:
+            warnings.append(
+                f"Affirmation sans transaction citee dans '{section}' (ignore la regle de citation obligatoire) - "
+                f"claim : {item.get('claim', '')!r}"
+            )
+
+        valid_cited = cited & valid_ids
+
+        if allowed_ids is not None:
+            mismatched = valid_cited - allowed_ids
+            if mismatched:
                 warnings.append(
-                    f"Affirmation non verifiee dans '{section}' : cite les transactions {sorted(invalid)} "
-                    f"qui n'existent pas dans les donnees fournies - claim : {item.get('claim', '')!r}"
-                )
-            if not cited:
-                warnings.append(
-                    f"Affirmation sans transaction citee dans '{section}' (ignore la regle de citation obligatoire) - "
-                    f"claim : {item.get('claim', '')!r}"
+                    f"Incoherence dans '{section}' : les transactions {sorted(mismatched)} citees "
+                    f"n'appartiennent PAS au regime '{regime_label}' - claim : {item.get('claim', '')!r}"
                 )
 
-            valid_cited = cited & valid_ids
+        return valid_cited
 
-            if section == "losing_trade_patterns":
-                winners_cited = [tid for tid in valid_cited if trades_by_id[tid]["is_win"]]
-                if winners_cited:
-                    warnings.append(
-                        f"Incoherence dans 'losing_trade_patterns' : les transactions {sorted(winners_cited)} "
-                        f"citees sont en realite GAGNANTES, pas perdantes - claim : {item.get('claim', '')!r}"
-                    )
+    best, worst = _best_worst_regime(facts)
 
-            if section == "regime_findings" and item.get("regime"):
-                claimed_regime = item["regime"]
-                mismatched = [tid for tid in valid_cited if trades_by_id[tid]["regime"] != claimed_regime]
-                if mismatched:
-                    warnings.append(
-                        f"Incoherence dans 'regime_findings' : les transactions {sorted(mismatched)} citees "
-                        f"n'appartiennent PAS au regime annonce ('{claimed_regime}') - claim : {item.get('claim', '')!r}"
-                    )
+    if best["regime"]:
+        allowed = set(trades_by_regime.get(best["regime"], []))
+        _check_citations("best_regime_comment", llm_data.get("best_regime_comment") or {}, allowed, best["regime"])
+
+    if worst["regime"]:
+        allowed = set(trades_by_regime.get(worst["regime"], []))
+        _check_citations("worst_regime_comment", llm_data.get("worst_regime_comment") or {}, allowed, worst["regime"])
+
+    for item in llm_data.get("losing_trade_patterns", []):
+        valid_cited = _check_citations("losing_trade_patterns", item, None, None)
+        winners_cited = [tid for tid in valid_cited if trades_by_id[tid]["is_win"]]
+        if winners_cited:
+            warnings.append(
+                f"Incoherence dans 'losing_trade_patterns' : les transactions {sorted(winners_cited)} "
+                f"citees sont en realite GAGNANTES, pas perdantes - claim : {item.get('claim', '')!r}"
+            )
 
     return warnings
 
@@ -226,12 +272,20 @@ def render_markdown(
             "",
         ]
 
-    if llm_data.get("regime_findings"):
-        for item in llm_data["regime_findings"]:
-            ids = ", ".join(f"#{i}" for i in item.get("evidence_trade_ids", []))
-            lines.append(f"- {item.get('claim', '')} _(transactions {ids})_")
+    best, worst = _best_worst_regime(facts)
+    if best["regime"]:
+        best_comment = llm_data.get("best_regime_comment") or {}
+        best_ids = ", ".join(f"#{i}" for i in best_comment.get("evidence_trade_ids", []))
+        lines.append(f"**Meilleur regime : {best['regime']} ({best['avg_return_pct']:+.2f}%)**")
+        lines.append(f"- {best_comment.get('claim') or '(aucun commentaire genere)'} _(transactions {best_ids})_")
+        lines.append("")
+
+        worst_comment = llm_data.get("worst_regime_comment") or {}
+        worst_ids = ", ".join(f"#{i}" for i in worst_comment.get("evidence_trade_ids", []))
+        lines.append(f"**Pire regime : {worst['regime']} ({worst['avg_return_pct']:+.2f}%)**")
+        lines.append(f"- {worst_comment.get('claim') or '(aucun commentaire genere)'} _(transactions {worst_ids})_")
     else:
-        lines.append("_Aucune observation generee._")
+        lines.append("_Aucune observation generee (aucun regime avec transactions)._")
     lines.append("")
 
     lines += ["## Points communs entre transactions perdantes", ""]
