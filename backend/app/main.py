@@ -11,6 +11,7 @@ from app.domains.analyst.router import router as analyst_router
 from app.domains.assets.router import router as assets_router
 from app.domains.backtests.router import router as backtests_router
 from app.domains.compliance.router import router as compliance_router
+from app.domains.llm_analyst.router import router as llm_analyst_router
 from app.domains.maintenance.router import router as maintenance_router
 from app.domains.market_data.router import router as market_data_router
 from app.domains.market_overview.router import router as market_overview_router
@@ -59,6 +60,10 @@ app.include_router(maintenance_router)
 app.include_router(analysis_lab_router)
 app.include_router(market_overview_router)
 app.include_router(signal_reliability_router)
+# 16/08/2026 : toujours enregistre (meme sur le NAS) mais desactive par
+# defaut a l'execution - voir domains/llm_analyst/router.py::require_enabled
+# et docs/20-instance-locale-pc-mac.md.
+app.include_router(llm_analyst_router)
 
 
 @app.get("/api/v1/health")

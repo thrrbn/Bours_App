@@ -78,6 +78,22 @@ class Settings(BaseSettings):
     # A ajuster selon sa situation reelle - voir docs/STACK.md.
     portfolio_dividend_withholding_pct: float = 0.30
 
+    # --- Analyste IA (LLM local, 16/08/2026) ---
+    # Feature integree au backend mais destinee EXCLUSIVEMENT a une instance
+    # locale PC/Mac (voir docs/20-instance-locale-pc-mac.md) - jamais activee
+    # sur le NAS deploye, qui n'a pas de GPU et dont le docker-compose.yml ne
+    # definit jamais ENABLE_LLM_ANALYST. Desactivee par defaut : meme si ce
+    # code est present dans le meme backend que celui deploye sur le NAS
+    # (meme depot Git), il reste un no-op tant que ce flag n'est pas
+    # explicitement mis a true dans un .env local - defense en profondeur en
+    # plus de la simple convention (voir router.py::require_enabled).
+    enable_llm_analyst: bool = False
+    # Ollama (https://ollama.com) tourne sur la MEME machine que ce backend
+    # local (jamais sur le NAS) - voir tools/backtest_analyst/llm_provider.py
+    # dont ce module est une adaptation directe.
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.1"
+
 
 @lru_cache
 def get_settings() -> Settings:

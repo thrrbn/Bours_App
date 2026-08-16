@@ -5,8 +5,15 @@
 import { onMounted, ref } from "vue";
 import { RouterLink, RouterView } from "vue-router";
 import { useMaintenanceStore } from "./stores/maintenance";
+import { useLlmAnalystStore } from "./stores/llmAnalyst";
 
 const maintenance = useMaintenanceStore();
+
+// 16/08/2026 : lien de nav affiche uniquement si le BACKEND signale la
+// feature active (GET /llm-analyst/status) - jamais un flag de build cote
+// frontend, voir docs/20-instance-locale-pc-mac.md. Sur le NAS deploye,
+// cet appel renvoie enabled=false et le lien reste simplement absent.
+const llmAnalyst = useLlmAnalystStore();
 
 // Menu replie par defaut sous le seuil "md" de Tailwind (768px) - GSM et
 // tablettes portrait. Au-dela, la nav horizontale complete reste affichee
@@ -27,6 +34,7 @@ let deferredInstallPrompt = null;
 const INSTALL_DISMISSED_KEY = "bourse_install_banner_dismissed";
 
 onMounted(() => {
+  llmAnalyst.loadStatus();
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
     deferredInstallPrompt = event;
@@ -71,6 +79,7 @@ function dismissInstallBanner() {
           <RouterLink to="/history" class="hover:underline">Historique des signaux</RouterLink>
           <RouterLink to="/fiabilite" class="hover:underline">Fiabilite</RouterLink>
           <RouterLink to="/analysis-lab" class="hover:underline">Laboratoire d'analyse</RouterLink>
+          <RouterLink v-if="llmAnalyst.status?.enabled" to="/analyste-ia" class="hover:underline">Analyste IA</RouterLink>
           <RouterLink to="/briefing" class="hover:underline">Briefing</RouterLink>
           <button
             class="text-xs border rounded px-2 py-1 text-gray-600 hover:bg-gray-50 disabled:opacity-40"
@@ -103,6 +112,7 @@ function dismissInstallBanner() {
         <RouterLink to="/history" class="py-1.5 hover:underline" @click="menuOpen = false">Historique des signaux</RouterLink>
         <RouterLink to="/fiabilite" class="py-1.5 hover:underline" @click="menuOpen = false">Fiabilite</RouterLink>
         <RouterLink to="/analysis-lab" class="py-1.5 hover:underline" @click="menuOpen = false">Laboratoire d'analyse</RouterLink>
+        <RouterLink v-if="llmAnalyst.status?.enabled" to="/analyste-ia" class="py-1.5 hover:underline" @click="menuOpen = false">Analyste IA</RouterLink>
         <RouterLink to="/briefing" class="py-1.5 hover:underline" @click="menuOpen = false">Briefing</RouterLink>
         <button
           class="mt-1 text-xs border rounded px-2 py-1.5 text-gray-600 hover:bg-gray-50 disabled:opacity-40 self-start"

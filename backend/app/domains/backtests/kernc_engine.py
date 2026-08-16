@@ -59,6 +59,7 @@ import math
 import os
 import tempfile
 import uuid
+from dataclasses import dataclass
 from datetime import date
 
 import pandas as pd
@@ -644,3 +645,82 @@ async def run_kernc_backtest(
         "extra_metrics": extra_metrics,
         "plot_html": plot_html,
     }
+
+
+# Strategies auto-suffisantes (prix seuls, aucune donnee stockee cote
+# application) exposees a app/domains/llm_analyst/ (16/08/2026, voir
+# docs/20-instance-locale-pc-mac.md) - signal_replay est volontairement
+# exclu : il depend de signaux deja calcules (table signals), hors-scope pour
+# une premiere version de l'analyste IA, coherent avec la meme restriction
+# deja documentee dans tools/backtest_analyst/strategies.py.
+LLM_ANALYST_SUPPORTED_STRATEGIES = (
+    STRATEGY_SMA_CROSS,
+    STRATEGY_RSI,
+    STRATEGY_MACD,
+    STRATEGY_BOLLINGER,
+    STRATEGY_BUY_AND_HOLD,
+)
+
+
+@dataclass
+class RawKernBacktestResult:
+    """Objets BRUTS de backtesting.py, par opposition au dict aplati que
+    retourne `run_kernc_backtest()` (destine a `backtest_results`, voir sa
+    docstring : "_equity_curve/_trades ne sont pas des scalaires
+    serialisables en JSON"). Ajoute le 16/08/2026 pour app/domains/llm_analyst/,
+    qui a justement besoin de ces objets non-scalaires (une ligne par
+    transaction, la courbe de capital complete) pour construire ses "faits"
+    (voir llm_analyst/quant_facts.py, copie quasi-identique de
+    tools/backtest_analyst/quant_facts.py). Rien ici n'est jamais persiste en
+    base - consomme immediatement par l'appelant puis jete."""
+
+    price_df: pd.DataFrame
+    stats: "pd.Series"
+    trades: pd.DataFrame
+    equity_curve: pd.DataFrame
+
+
+async def run_kernc_backtest_raw(
+    db: AsyncSession,
+    asset_id: uuid.UUID,
+    strategy_name: str,
+    period_start: date,
+    period_end: date,
+    cash: float = 10_000.0,
+    commission: float = 0.001,
+) -> RawKernBacktestResult | None:
+    """
+    Variante de `run_kernc_backtest()` qui n'ecrit rien en base et retourne
+    les objets bruts de backtesting.py plutot que le dict aplati destine a
+    `backtest_results` - voir `RawKernBacktestResult`. Reutilise
+    `_load_price_dataframe()` (donc le cours AJUSTE des dividendes/splits,
+    contrairement a tools/backtest_analyst/ qui n'a pas acces a cette colonne
+    via l'API publique en lecture seule - voir tools/shared/nas_api_client.py)
+    et `_STRATEGY_CLASSES` : aucune strategie n'est dupliquee ici.
+
+    Restreinte a `LLM_ANALYST_SUPPORTED_STRATEGIES` - contrairement a
+    `run_kernc_backtest()`, pas de "laboratoire de parametres" ici (toujours
+    les reglages par defaut de chaque strategie) : l'analyste IA compare des
+    regimes de marche et des transactions, pas des reglages de strategie -
+    coherent avec le perimetre deja pose dans tools/backtest_analyst/.
+    """
+    if strategy_name not in LLM_ANALYST_SUPPORTED_STRATEGIES:
+        raise ValueError(
+            f"Strategie non supportee par l'analyste IA: {strategy_name} "
+            f"(supportees: {LLM_ANALYST_SUPPORTED_STRATEGIES})"
+        )
+
+    strategy_cls = _STRATEGY_CLASSES[strategy_name]
+    df = await _load_price_dataframe(db, asset_id, period_start, period_end)
+    if df.empty:
+        return None
+
+    bt = Backtest(df, strategy_cls, cash=cash, commission=commission, exclusive_orders=True, finalize_trades=True)
+    stats = bt.run()
+
+    return RawKernBacktestResult(
+        price_df=df,
+        stats=stats,
+        trades=stats["_trades"],
+        equity_curve=stats["_equity_curve"],
+    )

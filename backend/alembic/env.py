@@ -31,6 +31,7 @@ from app.domains.analysis_lab.db_models import TrainingJob  # noqa: F401
 from app.domains.analyst.models import AnalystConsensus  # noqa: F401
 from app.domains.assets.models import Asset  # noqa: F401
 from app.domains.backtests.models import BacktestResult, BacktestRun  # noqa: F401
+from app.domains.llm_analyst.db_models import AnalysisJob  # noqa: F401
 from app.domains.market_data.models import Dividend, PriceBar, TechnicalIndicator  # noqa: F401
 from app.domains.market_overview.models import MarketSnapshot  # noqa: F401
 from app.domains.news.models import NewsArticle, NewsKeywordMatch  # noqa: F401

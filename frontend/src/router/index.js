@@ -10,6 +10,7 @@ import AnalysisLabView from "../views/AnalysisLabView.vue";
 import BriefingView from "../views/BriefingView.vue";
 import MarketOverviewView from "../views/MarketOverviewView.vue";
 import SignalReliabilityView from "../views/SignalReliabilityView.vue";
+import LlmAnalystView from "../views/LlmAnalystView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -25,6 +26,7 @@ const router = createRouter({
     { path: "/analysis-lab", name: "analysis-lab", component: AnalysisLabView },
     { path: "/briefing", name: "briefing", component: BriefingView },
     { path: "/fiabilite", name: "signal-reliability", component: SignalReliabilityView },
+    { path: "/analyste-ia", name: "llm-analyst", component: LlmAnalystView },
   ],
 });
 
