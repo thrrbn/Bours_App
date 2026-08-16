@@ -37,7 +37,9 @@ RESPONSE_SCHEMA = {
             "required": ["claim", "evidence_trade_ids"],
             "description": (
                 "Commentaire sur le regime le PLUS performant - CE REGIME EST DEJA DETERMINE (voir 'best_regime' "
-                "dans le prompt), tu ne le choisis pas, tu le commentes uniquement."
+                "dans le prompt), tu ne le choisis pas, tu le commentes uniquement. 'claim' DOIT inclure au moins "
+                "un chiffre concret (taux de reussite, rendement moyen ou nombre de transactions) - jamais une "
+                "simple reformulation generique comme 'ce regime semble etre le plus performant'."
             ),
         },
         "worst_regime_comment": {
@@ -49,7 +51,9 @@ RESPONSE_SCHEMA = {
             "required": ["claim", "evidence_trade_ids"],
             "description": (
                 "Commentaire sur le regime le MOINS performant - CE REGIME EST DEJA DETERMINE (voir 'worst_regime' "
-                "dans le prompt), tu ne le choisis pas, tu le commentes uniquement."
+                "dans le prompt), tu ne le choisis pas, tu le commentes uniquement. 'claim' DOIT inclure au moins "
+                "un chiffre concret (taux de reussite, rendement moyen ou nombre de transactions) - jamais une "
+                "simple reformulation generique comme 'ce regime semble etre le moins performant'."
             ),
         },
         "losing_trade_patterns": {
@@ -84,6 +88,7 @@ Regles STRICTES, a respecter absolument :
 6. IMPORTANT - pour choisir "evidence_trade_ids", NE RECALCULE JAMAIS toi-meme a quel regime ou a quel resultat (gagnant/perdant) appartient une transaction en relisant la liste "trades" : utilise UNIQUEMENT les groupes deja calcules "trades_by_regime" (regime -> liste de trade_id), "winning_trade_ids" et "losing_trade_ids". Pour "best_regime_comment", "evidence_trade_ids" doit etre un sous-ensemble de trades_by_regime["{best_regime}"]. Pour "worst_regime_comment", un sous-ensemble de trades_by_regime["{worst_regime}"]. Pour "losing_trade_patterns", un sous-ensemble de "losing_trade_ids".
 7. Reponds UNIQUEMENT en JSON valide, respectant strictement le schema demande. Aucun texte hors du JSON.
 8. "summary" NE DOIT JAMAIS se contenter de reformuler le titre (ex. "Analyse de backtest de X sur Y du ... au ...") - c'est INTERDIT et sera considere comme un echec. "summary" DOIT contenir, en 2-4 phrases : (a) le rendement total obtenu, chiffre precis tire de "aggregate_stats" (cle "Return [%]"), compare au rendement buy-and-hold si "Buy & Hold Return [%]" est present ; (b) "{best_regime}" comme regime le plus performant ({best_regime_return:+.2f}%) et "{worst_regime}" comme le moins performant ({worst_regime_return:+.2f}%) - ne cite JAMAIS un autre regime a leur place ; (c) l'ampleur (en %) du pire episode de repli d'apres "top_drawdown_periods", en precisant s'il etait encore en cours a la fin de la periode (champ "end" a null).
+9. IMPORTANT (16/08/2026, corrige un echec reel observe) : le "claim" de "best_regime_comment" et de "worst_regime_comment" NE DOIT JAMAIS se limiter a une reformulation generique du type "ce regime semble etre le plus/moins performant" - c'est INTERDIT et sera considere comme un echec, EXACTEMENT comme pour "summary" (regle 8). Chaque "claim" DOIT citer au moins un chiffre precis tire de "regime_performance" pour le regime concerne (son "avg_return_pct", son "win_rate_pct", ou son "count") en plus des transactions citees dans "evidence_trade_ids".
 
 Faits (strategie "{strategy_name}" sur {ticker}, du {period_start} au {period_end}) :
 {facts_json}
@@ -225,6 +230,26 @@ def _validate_summary(summary: str) -> list[str]:
     return []
 
 
+def _validate_regime_comment(item: dict, section: str) -> list[str]:
+    """Meme logique que `_validate_summary()`, appliquee cette fois aux deux
+    champs fixes du regime (16/08/2026) : en usage reel, une fois le bug de
+    mauvais etiquetage corrige (voir `_best_worst_regime`), le modele s'est
+    mis a produire des "claim" corrects mais vides de contenu - "Le regime
+    'moyenne' semble etre le plus performant." - sans aucun chiffre a
+    l'appui, alors que la regle 9 du prompt l'exige explicitement. Verifie
+    mecaniquement la PRESENCE d'au moins un chiffre dans le texte (comme
+    pour le resume, pas son exactitude - impossible a verifier sans reparser
+    du langage naturel)."""
+    claim = item.get("claim", "")
+    if not any(ch.isdigit() for ch in claim):
+        return [
+            f"Le commentaire '{section}' ne cite aucun chiffre concret (taux de reussite, rendement moyen, "
+            f"nombre de transactions) alors que la consigne l'exige explicitement - probablement une observation "
+            f"generique peu informative, a lire avec prudence."
+        ]
+    return []
+
+
 def render_markdown(
     strategy_name: str,
     ticker: str,
@@ -343,6 +368,8 @@ def analyze(
     response = provider.complete(prompt, json_schema=RESPONSE_SCHEMA, use_cache=use_cache)
     citation_warnings = _validate_citations(response.data, facts)
     citation_warnings += _validate_summary(response.data.get("summary", ""))
+    citation_warnings += _validate_regime_comment(response.data.get("best_regime_comment") or {}, "best_regime_comment")
+    citation_warnings += _validate_regime_comment(response.data.get("worst_regime_comment") or {}, "worst_regime_comment")
 
     markdown = render_markdown(
         strategy_name,
